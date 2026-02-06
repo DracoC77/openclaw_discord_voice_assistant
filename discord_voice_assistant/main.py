@@ -6,7 +6,7 @@ import asyncio
 import logging
 import sys
 
-from discord_voice_assistant.bot import ClippyBot
+from discord_voice_assistant.bot import VoiceAssistantBot
 from discord_voice_assistant.config import Config
 
 
@@ -35,7 +35,7 @@ def main() -> None:
 
     log.info("Starting Discord Voice Assistant v%s", "0.1.0")
 
-    bot = ClippyBot(config)
+    bot = VoiceAssistantBot(config)
 
     try:
         bot.run(config.discord.token)

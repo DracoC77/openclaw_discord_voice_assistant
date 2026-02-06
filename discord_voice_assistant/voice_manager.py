@@ -11,7 +11,7 @@ import discord
 from discord_voice_assistant.voice_session import VoiceSession
 
 if TYPE_CHECKING:
-    from discord_voice_assistant.bot import ClippyBot
+    from discord_voice_assistant.bot import VoiceAssistantBot
     from discord_voice_assistant.config import Config
 
 log = logging.getLogger(__name__)
@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 class VoiceManager:
     """Coordinates voice channel presence and session lifecycle."""
 
-    def __init__(self, bot: ClippyBot, config: Config) -> None:
+    def __init__(self, bot: VoiceAssistantBot, config: Config) -> None:
         self.bot = bot
         self.config = config
         # guild_id -> VoiceSession

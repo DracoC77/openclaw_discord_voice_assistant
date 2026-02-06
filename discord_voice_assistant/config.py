@@ -24,6 +24,7 @@ def _int_list(val: str | None) -> list[int]:
 @dataclass(frozen=True)
 class DiscordConfig:
     token: str = os.getenv("DISCORD_BOT_TOKEN", "")
+    bot_name: str = os.getenv("BOT_NAME", "Clippy")
 
 
 @dataclass(frozen=True)

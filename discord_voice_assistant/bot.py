@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
-class ClippyBot(commands.Bot):
+class VoiceAssistantBot(commands.Bot):
     """Discord bot that manages voice sessions with OpenClaw integration."""
 
     def __init__(self, config: Config) -> None:
@@ -70,6 +70,6 @@ class ClippyBot(commands.Bot):
         await self.voice_manager.handle_voice_state_update(member, before, after)
 
     async def close(self) -> None:
-        log.info("Shutting down Clippy...")
+        log.info("Shutting down voice assistant...")
         await self.voice_manager.cleanup()
         await super().close()

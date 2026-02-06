@@ -1,4 +1,4 @@
-"""Voice-specific slash commands for Clippy."""
+"""Voice-specific slash commands for the voice assistant."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import discord
 from discord.ext import commands
 
 if TYPE_CHECKING:
-    from discord_voice_assistant.bot import ClippyBot
+    from discord_voice_assistant.bot import VoiceAssistantBot
 
 log = logging.getLogger(__name__)
 
@@ -18,10 +18,10 @@ log = logging.getLogger(__name__)
 class VoiceCommands(commands.Cog):
     """Commands for controlling voice channel behavior."""
 
-    def __init__(self, bot: ClippyBot) -> None:
+    def __init__(self, bot: VoiceAssistantBot) -> None:
         self.bot = bot
 
-    @discord.slash_command(name="join", description="Summon Clippy to your voice channel")
+    @discord.slash_command(name="join", description="Summon the voice assistant to your channel")
     async def join(self, ctx: discord.ApplicationContext) -> None:
         if not ctx.author.voice or not ctx.author.voice.channel:
             await ctx.respond(
@@ -32,7 +32,7 @@ class VoiceCommands(commands.Cog):
         vm = self.bot.voice_manager
         if not vm.is_authorized(ctx.author.id):
             await ctx.respond(
-                "You're not authorized to summon Clippy. "
+                "You're not authorized to summon the voice assistant. "
                 "Ask the bot owner to use `/authorize` for you.",
                 ephemeral=True,
             )
@@ -46,7 +46,7 @@ class VoiceCommands(commands.Cog):
         except Exception as e:
             await ctx.edit(content=f"Failed to join: {e}")
 
-    @discord.slash_command(name="leave", description="Make Clippy leave the voice channel")
+    @discord.slash_command(name="leave", description="Make the voice assistant leave the channel")
     async def leave(self, ctx: discord.ApplicationContext) -> None:
         vm = self.bot.voice_manager
         session = vm.get_session(ctx.guild.id)
@@ -89,21 +89,21 @@ class VoiceCommands(commands.Cog):
 
         if not session or not session.is_active:
             await ctx.respond(
-                "Clippy needs to be in a voice channel first. Use `/join`.",
+                "The voice assistant needs to be in a voice channel first. Use `/join`.",
                 ephemeral=True,
             )
             return
 
         if not ctx.author.voice or ctx.author.voice.channel != session.channel:
             await ctx.respond(
-                "You need to be in the same voice channel as Clippy.",
+                "You need to be in the same voice channel as the bot.",
                 ephemeral=True,
             )
             return
 
         await ctx.respond(
             "Starting voice enrollment. Please speak for about 10 seconds...\n"
-            "Say something like: *'Hello Clippy, this is my voice profile enrollment. "
+            "Say something like: *'Hello, this is my voice profile enrollment. "
             "I want you to recognize me when I speak in voice channels.'*",
             ephemeral=True,
         )
@@ -131,7 +131,7 @@ class VoiceCommands(commands.Cog):
             if success:
                 await ctx.edit(
                     content="Voice profile enrolled successfully! "
-                    "Clippy will now be able to identify your voice."
+                    "The voice assistant will now be able to identify your voice."
                 )
             else:
                 await ctx.edit(

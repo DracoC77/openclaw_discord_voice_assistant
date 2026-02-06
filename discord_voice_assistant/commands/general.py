@@ -1,4 +1,4 @@
-"""General slash commands for Clippy."""
+"""General slash commands for the voice assistant."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import discord
 from discord.ext import commands
 
 if TYPE_CHECKING:
-    from discord_voice_assistant.bot import ClippyBot
+    from discord_voice_assistant.bot import VoiceAssistantBot
 
 log = logging.getLogger(__name__)
 
@@ -17,22 +17,23 @@ log = logging.getLogger(__name__)
 class GeneralCommands(commands.Cog):
     """General bot commands."""
 
-    def __init__(self, bot: ClippyBot) -> None:
+    def __init__(self, bot: VoiceAssistantBot) -> None:
         self.bot = bot
 
-    @discord.slash_command(name="ping", description="Check if Clippy is alive")
+    @discord.slash_command(name="ping", description="Check if the voice assistant is alive")
     async def ping(self, ctx: discord.ApplicationContext) -> None:
         latency = round(self.bot.latency * 1000)
         await ctx.respond(f"Pong! Latency: {latency}ms", ephemeral=True)
 
-    @discord.slash_command(name="status", description="Show Clippy's current status")
+    @discord.slash_command(name="status", description="Show the voice assistant's current status")
     async def status(self, ctx: discord.ApplicationContext) -> None:
         vm = self.bot.voice_manager
         sessions = len(vm._sessions)
         authorized = len(self.bot.config.auth.authorized_user_ids)
+        name = self.bot.config.discord.bot_name
 
         embed = discord.Embed(
-            title="Clippy Status",
+            title=f"{name} Status",
             color=discord.Color.green() if sessions > 0 else discord.Color.greyple(),
         )
         embed.add_field(name="Active Voice Sessions", value=str(sessions), inline=True)
@@ -116,10 +117,11 @@ class GeneralCommands(commands.Cog):
         else:
             await ctx.respond(f"{user.mention} is not in the authorized list.", ephemeral=True)
 
-    @discord.slash_command(name="help", description="Show Clippy's available commands")
+    @discord.slash_command(name="help", description="Show available voice assistant commands")
     async def help_cmd(self, ctx: discord.ApplicationContext) -> None:
+        name = self.bot.config.discord.bot_name
         embed = discord.Embed(
-            title="Clippy - Voice Assistant Commands",
+            title=f"{name} - Voice Assistant Commands",
             description="Discord Voice Assistant for OpenClaw",
             color=discord.Color.blue(),
         )
@@ -137,8 +139,8 @@ class GeneralCommands(commands.Cog):
         embed.add_field(
             name="Voice",
             value=(
-                "`/join` - Summon Clippy to your voice channel\n"
-                "`/leave` - Make Clippy leave the voice channel\n"
+                f"`/join` - Summon {name} to your voice channel\n"
+                f"`/leave` - Make {name} leave the voice channel\n"
                 "`/rejoin` - Rejoin after inactivity disconnect\n"
                 "`/enroll` - Enroll your voice profile for identification\n"
                 "`/voice-status` - Show voice session details\n"
@@ -146,5 +148,5 @@ class GeneralCommands(commands.Cog):
             ),
             inline=False,
         )
-        embed.set_footer(text="Say 'Clippy' to activate in multi-user voice channels")
+        embed.set_footer(text=f"Say '{name}' to activate in multi-user voice channels")
         await ctx.respond(embed=embed, ephemeral=True)

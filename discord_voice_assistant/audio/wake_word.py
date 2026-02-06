@@ -17,7 +17,7 @@ FRAME_SIZE = 1280
 
 
 class WakeWordDetector:
-    """Detects a wake word (e.g., 'clippy') in audio streams."""
+    """Detects a configured wake word in audio streams."""
 
     def __init__(self, config: WakeWordConfig) -> None:
         self.config = config
@@ -41,7 +41,7 @@ class WakeWordDetector:
             if self.config.model_path:
                 model_kwargs["wakeword_models"] = [self.config.model_path]
             # else: use all default models (includes "hey jarvis", etc.)
-            # For custom "clippy" wake word, user provides a trained .tflite model
+            # For a custom wake word, user provides a trained .tflite model
 
             self._model = Model(**model_kwargs)
             log.info(

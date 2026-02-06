@@ -1,1 +1,1 @@
-"""Discord slash commands for Clippy."""
+"""Discord slash commands for the voice assistant."""

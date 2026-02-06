@@ -1,77 +1,93 @@
 # Discord Voice Assistant for OpenClaw
 
-A Discord bot that brings voice conversation capabilities to [OpenClaw](https://openclaw.ai). Clippy joins your Discord voice channels, listens for speech, communicates with your OpenClaw AI agent, and speaks responses back — enabling hands-free AI conversations.
+A Discord bot that brings voice conversation capabilities to [OpenClaw](https://openclaw.ai). It joins your Discord voice channels, listens for speech, communicates with your OpenClaw AI agent, and speaks responses back — enabling hands-free AI conversations.
+
+The bot's display name is configurable via `BOT_NAME` (defaults to "Clippy").
 
 ## Features
 
 - **Auto-join voice channels** — automatically joins when authorized users enter a voice channel
 - **Speech-to-text** — real-time transcription using [Faster Whisper](https://github.com/SYSTRAN/faster-whisper) (runs locally, no API costs)
 - **Text-to-speech** — natural voice output via [ElevenLabs](https://elevenlabs.io) or local [Piper TTS](https://github.com/rhasspy/piper) / espeak-ng fallback
-- **Wake word detection** — "Clippy" hotword via [openWakeWord](https://github.com/dscripka/openWakeWord) for multi-user channels
+- **Wake word detection** — configurable hotword via [openWakeWord](https://github.com/dscripka/openWakeWord) for multi-user channels
 - **Speaker identification** — identifies who is speaking using voice embeddings ([Resemblyzer](https://github.com/resemble-ai/Resemblyzer))
 - **Authorization system** — restrict interactions to specific Discord users, with wake-word gating for others
 - **Inactivity timeout** — automatically leaves voice channels after configurable idle period
 - **Slash commands** — `/join`, `/leave`, `/rejoin`, `/enroll`, `/status`, `/timeout`, and more
 - **OpenClaw integration** — creates sessions with your OpenClaw agent for each voice conversation
-- **Docker + Unraid ready** — ships with Dockerfile, docker-compose, and Unraid XML template
+- **Docker sidecar** — runs alongside your existing OpenClaw container on the same Docker network
+- **Unraid ready** — ships with Dockerfile, docker-compose, Unraid XML template, and install script
 
-## Architecture
+## How It Works
+
+This is a **standalone Python application** that runs as a Docker sidecar alongside your existing OpenClaw container. It does NOT modify or run inside the OpenClaw container — it communicates over HTTP on the same Docker network.
 
 ```
-Discord Voice Channel
+[Discord Voice Channel]
        │
-  [Pycord]  ── receives per-user audio streams
+  [Voice Assistant Container]  ── Python, Pycord, FFmpeg
+       │  receives per-user audio streams
+       │  wake word detection (openWakeWord)
+       │  speech-to-text (Faster Whisper)
        │
-  [StreamingSink]  ── buffers audio, energy-based VAD
+       │  HTTP (/api/v1/chat)
+       v
+  [OpenClaw Container]  ── Node.js, your AI agent
        │
-  [openWakeWord]  ── wake word detection (multi-user channels)
-       │
-  [Faster Whisper]  ── speech-to-text transcription
-       │
-  [OpenClaw API]  ── sends text, receives AI response
-       │
-  [ElevenLabs / Piper]  ── text-to-speech synthesis
-       │
-  [Pycord Voice Send]  ── plays audio in voice channel
+       v
+  [Voice Assistant Container]
+       │  text-to-speech (ElevenLabs/Piper)
+       │  plays audio in voice channel
+       v
+  [Discord Voice Channel]
 ```
 
 ## Quick Start
 
 ### Prerequisites
 
-- Python 3.10+
-- FFmpeg installed (`apt install ffmpeg` or `brew install ffmpeg`)
+- Docker and docker-compose (recommended) OR Python 3.10+ with FFmpeg
 - A Discord Bot Token ([create one here](https://discord.com/developers/applications))
 - A running OpenClaw instance
 
-### 1. Clone and install
+### Option 1: Docker alongside OpenClaw (recommended)
+
+```bash
+# Clone
+git clone https://github.com/DracoC77/openclaw_discord_voice_assistant.git
+cd openclaw_discord_voice_assistant
+
+# Configure
+cp .env.example .env
+# Edit .env: set DISCORD_BOT_TOKEN and OPENCLAW_URL
+
+# Run
+docker compose up -d
+```
+
+### Option 2: Automated install script
 
 ```bash
 git clone https://github.com/DracoC77/openclaw_discord_voice_assistant.git
 cd openclaw_discord_voice_assistant
-pip install -e .
+bash scripts/install.sh
 ```
 
-### 2. Configure
+The install script auto-detects your OpenClaw container, configures networking, and starts the bot.
+
+### Option 3: Standalone Python
 
 ```bash
+pip install -e .
 cp .env.example .env
-# Edit .env with your settings
+# Edit .env
+python -m discord_voice_assistant.main
 ```
 
-**Required settings:**
-- `DISCORD_BOT_TOKEN` — your Discord bot token
-- `OPENCLAW_URL` — URL of your OpenClaw instance (e.g., `http://localhost:3000`)
-
-**Recommended settings:**
-- `AUTHORIZED_USER_IDS` — comma-separated Discord user IDs to restrict access
-- `STT_MODEL_SIZE` — `base` is a good balance of speed and accuracy; `small` for better accuracy
-- `TTS_PROVIDER` — `local` for free (uses Piper/espeak), `elevenlabs` for premium voice quality
-
-### 3. Create Discord Bot
+### Create Discord Bot
 
 1. Go to [Discord Developer Portal](https://discord.com/developers/applications)
-2. Create a **New Application** → name it "Clippy" (or whatever you like)
+2. Create a **New Application**
 3. Go to **Bot** → click **Reset Token** → copy the token to `DISCORD_BOT_TOKEN`
 4. Enable these **Privileged Gateway Intents**:
    - Server Members Intent
@@ -81,12 +97,6 @@ cp .env.example .env
    - Bot Permissions: `Connect`, `Speak`, `Use Voice Activity`, `Send Messages`, `Use Slash Commands`
 6. Use the generated URL to invite the bot to your server
 
-### 4. Run
-
-```bash
-python -m discord_voice_assistant.main
-```
-
 ## Slash Commands
 
 | Command | Description |
@@ -94,8 +104,8 @@ python -m discord_voice_assistant.main
 | `/ping` | Check bot latency |
 | `/status` | Show bot status and configuration |
 | `/help` | Show all available commands |
-| `/join` | Summon Clippy to your voice channel |
-| `/leave` | Make Clippy leave the voice channel |
+| `/join` | Summon bot to your voice channel |
+| `/leave` | Make bot leave the voice channel |
 | `/rejoin` | Rejoin after inactivity disconnect |
 | `/enroll` | Record a voice sample for speaker identification |
 | `/voice-status` | Show details about the current voice session |
@@ -106,157 +116,146 @@ python -m discord_voice_assistant.main
 ## Voice Behavior
 
 ### Auto-Join
-When `AUTO_JOIN_ENABLED=true`, Clippy automatically joins a voice channel when an authorized user connects. It follows the authorized user if they switch channels.
+When `AUTO_JOIN_ENABLED=true`, the bot automatically joins a voice channel when an authorized user connects. It follows the authorized user if they switch channels.
 
 ### Wake Word
-In multi-user channels (more than just you and Clippy), the wake word "Clippy" must be spoken before a command. This prevents the bot from responding to conversations not directed at it.
+In multi-user channels (more than just you and the bot), the wake word must be spoken before a command. This prevents the bot from responding to conversations not directed at it. Set `BOT_NAME` to configure what name appears in help text.
 
 For unauthorized users, the wake word is always required (configurable via `REQUIRE_WAKE_WORD_FOR_UNAUTHORIZED`).
 
 #### Custom Wake Word
 To train a custom wake word model:
 1. Use [openWakeWord's training notebook](https://github.com/dscripka/openWakeWord#training-new-models) on Google Colab
-2. Train with your desired wake word (e.g., "hey clippy")
+2. Train with your desired wake word
 3. Place the `.tflite` model file in the `models/` directory
 4. Set `WAKE_WORD_MODEL_PATH=models/your_model.tflite`
 
 ### Inactivity Timeout
-Clippy leaves the voice channel after `INACTIVITY_TIMEOUT` seconds of no speech activity. Default is 300 seconds (5 minutes). Set to `0` to disable.
+The bot leaves the voice channel after `INACTIVITY_TIMEOUT` seconds of no speech activity. Default is 300 seconds (5 minutes). Set to `0` to disable.
 
-When all human users leave the channel, Clippy leaves immediately. When only unauthorized users remain, it starts a 30-second leave timer.
+When all human users leave the channel, the bot leaves immediately. When only unauthorized users remain, it starts a 30-second leave timer.
 
 ### Speaker Identification
-Use `/enroll` to record a 10-second voice sample. Clippy uses this to verify speaker identity. This is useful in multi-user scenarios where Discord's per-user audio streams provide user identification at the Discord level, but voice biometrics add an extra verification layer.
+Use `/enroll` to record a 10-second voice sample. The bot uses this to verify speaker identity via voice biometric embeddings, adding an extra verification layer on top of Discord's per-user audio streams.
 
-## Docker Deployment
+## Deploying with OpenClaw
 
-### Using Docker Compose
+### Docker Compose Sidecar (recommended)
+
+This runs the voice assistant as a separate container on the same Docker network as OpenClaw:
 
 ```bash
 cp .env.example .env
-# Edit .env with your settings
-
+# Set DISCORD_BOT_TOKEN and OPENCLAW_URL=http://<openclaw-container-name>:3000
 docker compose up -d
 ```
 
-### Building the Image
-
-```bash
-docker build -t openclaw-discord-voice-assistant .
+If OpenClaw is on a custom Docker network, add this to `docker-compose.yml`:
+```yaml
+networks:
+  default:
+    name: your_openclaw_network
+    external: true
 ```
 
-### Running Directly
+### Combined docker-compose.yml
 
-```bash
-docker run -d \
-  --name discord-voice-assistant \
-  --restart unless-stopped \
-  --env-file .env \
-  -v $(pwd)/data:/app/data \
-  -v $(pwd)/models:/app/models \
-  -v $(pwd)/logs:/app/logs \
-  openclaw-discord-voice-assistant
-```
+To manage both OpenClaw and the voice assistant together, see the template in [`AGENT_INSTALL.md`](AGENT_INSTALL.md#docker-compose-with-openclaw).
+
+### Why Not Inside the OpenClaw Container?
+
+OpenClaw runs on Node.js 22 (Debian Bookworm). It does **not** include Python, FFmpeg, or the audio libraries this bot needs. Installing them inside the OpenClaw container would:
+- Add ~2GB+ of dependencies (Python, Whisper models, audio libs)
+- Be fragile across OpenClaw updates
+- Require a process manager to run both Node.js and Python
+
+The sidecar approach keeps both containers clean and independently updatable.
 
 ## Unraid Deployment
 
-### Option A: Docker Compose (Recommended)
+### Option A: Install Script (easiest)
 
-1. Install the **Docker Compose Manager** plugin from Community Applications
-2. SSH into your Unraid server
-3. Clone this repo or copy the files to `/mnt/user/appdata/discord-voice-assistant/`
+```bash
+ssh root@your-unraid-ip
+mkdir -p /mnt/user/appdata/discord-voice-assistant
+cd /mnt/user/appdata/discord-voice-assistant
+git clone https://github.com/DracoC77/openclaw_discord_voice_assistant.git .
+bash scripts/install.sh
+```
+
+### Option B: Docker Compose
 
 ```bash
 cd /mnt/user/appdata/discord-voice-assistant
 git clone https://github.com/DracoC77/openclaw_discord_voice_assistant.git .
 cp .env.example .env
 nano .env  # Configure your settings
-```
-
-4. Build and start:
-
-```bash
 docker compose up -d
-```
-
-5. View logs:
-
-```bash
 docker compose logs -f discord-voice-assistant
 ```
 
-### Option B: Unraid Template
+### Option C: Unraid Template
 
 1. Copy `unraid-template.xml` to your Unraid templates directory
-2. In the Unraid web UI, go to **Docker** → **Add Container** → **Template** → select "discord-voice-assistant"
-3. Fill in the configuration fields
-4. Click **Apply**
-
-### Unraid File Path Notes
-
-Unraid uses `/mnt/user/appdata/` for Docker container persistent data. The template maps:
-
-| Container Path | Unraid Default Path | Purpose |
-|---|---|---|
-| `/app/data` | `/mnt/user/appdata/discord-voice-assistant/data` | Voice profiles, session data |
-| `/app/models` | `/mnt/user/appdata/discord-voice-assistant/models` | AI model cache (Whisper, etc.) |
-| `/app/logs` | `/mnt/user/appdata/discord-voice-assistant/logs` | Application logs |
-
-**Important**: The first startup will download AI models (Whisper, openWakeWord). This may take several minutes and requires internet access. Models are cached in the models volume for subsequent runs.
+2. In the Unraid web UI: **Docker** → **Add Container** → **Template** → select "discord-voice-assistant"
+3. Fill in the configuration fields and click **Apply**
 
 ### Connecting to OpenClaw on Unraid
 
-If OpenClaw is also running as a Docker container on the same Unraid server:
-
-1. Find the OpenClaw container name: `docker ps | grep openclaw`
-2. Use Docker's internal networking: Set `OPENCLAW_URL=http://openclaw-container-name:3000`
-3. Or use the Unraid host IP: `OPENCLAW_URL=http://192.168.x.x:3000`
-
-### Troubleshooting Unraid
-
-**Container won't start:**
 ```bash
-docker logs discord-voice-assistant
+# Find the OpenClaw container name
+docker ps | grep -i openclaw
+
+# Set OPENCLAW_URL to the container name (internal Docker DNS)
+OPENCLAW_URL=http://openclaw-container-name:3000
+
+# Or use the Unraid host IP
+OPENCLAW_URL=http://192.168.x.x:3000
 ```
 
-**Permission issues:**
+### Troubleshooting
+
+See [`AGENT_INSTALL.md`](AGENT_INSTALL.md#troubleshooting) for detailed troubleshooting steps, or check:
+
 ```bash
-# Fix permissions on appdata directories
-chmod -R 755 /mnt/user/appdata/discord-voice-assistant/
+docker logs discord-voice-assistant          # Container logs
+docker exec discord-voice-assistant ffmpeg -version  # Verify FFmpeg
+docker stats discord-voice-assistant         # Memory usage
 ```
 
-**No audio / FFmpeg errors:**
-The Docker image includes FFmpeg. If you see codec errors, ensure the image built correctly:
-```bash
-docker exec discord-voice-assistant ffmpeg -version
-```
+**Memory by STT model:** tiny ~150MB, base ~300MB, small ~600MB, medium ~1.5GB, large-v3 ~3GB
 
-**Model download failures:**
-If behind a proxy or with limited internet:
-```bash
-# Download models manually on a machine with internet access
-pip install faster-whisper
-python -c "from faster_whisper import WhisperModel; WhisperModel('base')"
-# Copy the cached model from ~/.cache/huggingface/ to your models volume
-```
+## Giving This to Your OpenClaw Agent
 
-**High memory usage:**
-Reduce the Whisper model size. Memory usage by model:
-- `tiny`: ~150MB
-- `base`: ~300MB
-- `small`: ~600MB
-- `medium`: ~1.5GB
-- `large-v3`: ~3GB
+See [`AGENT_INSTALL.md`](AGENT_INSTALL.md) for a complete guide designed for an OpenClaw agent to follow autonomously.
+
+Quick prompt for your agent:
+
+> I need you to deploy the Discord Voice Assistant on my Unraid server.
+> Read the AGENT_INSTALL.md file at https://github.com/DracoC77/openclaw_discord_voice_assistant
+> for step-by-step instructions. My Discord bot token is [token] and OpenClaw
+> is running at http://[container-name]:3000.
 
 ## Configuration Reference
 
-See [`.env.example`](.env.example) for all available configuration options with descriptions.
+See [`.env.example`](.env.example) for all available options. Key settings:
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `DISCORD_BOT_TOKEN` | Yes | — | Discord bot token |
+| `OPENCLAW_URL` | Yes | `http://localhost:3000` | OpenClaw API URL |
+| `BOT_NAME` | No | `Clippy` | Display name in bot responses |
+| `AUTHORIZED_USER_IDS` | No | — | Comma-separated Discord user IDs |
+| `STT_MODEL_SIZE` | No | `base` | tiny/base/small/medium/large-v3 |
+| `TTS_PROVIDER` | No | `local` | `local` or `elevenlabs` |
+| `WAKE_WORD_ENABLED` | No | `true` | Enable wake word detection |
+| `AUTO_JOIN_ENABLED` | No | `true` | Auto-join voice channels |
+| `INACTIVITY_TIMEOUT` | No | `300` | Seconds before auto-leave |
 
 ## Project Structure
 
 ```
 discord_voice_assistant/
-├── __init__.py
 ├── main.py              # Entry point
 ├── bot.py               # Discord bot core
 ├── config.py            # Configuration management
@@ -273,28 +272,10 @@ discord_voice_assistant/
 │   └── voice.py         # Voice-specific slash commands
 └── integrations/
     └── openclaw.py      # OpenClaw API client
+scripts/
+└── install.sh           # Automated install script
+AGENT_INSTALL.md         # Guide for OpenClaw agent deployment
 ```
-
-## Giving This to Your OpenClaw Agent
-
-If you want your OpenClaw agent to deploy and manage this bot, here's a prompt you can use:
-
-> I need you to deploy the Clippy Discord Voice Assistant on my Unraid server.
-> The code is at https://github.com/DracoC77/openclaw_discord_voice_assistant
->
-> My Unraid server details:
-> - SSH access at [your-ip]
-> - Docker appdata path: /mnt/user/appdata/
-> - OpenClaw is running at http://[openclaw-container]:3000
->
-> Steps:
-> 1. Clone the repo to /mnt/user/appdata/discord-voice-assistant/
-> 2. Create .env from .env.example with my Discord token: [token]
-> 3. Set OPENCLAW_URL to point to the OpenClaw container
-> 4. Run docker compose up -d
-> 5. Check logs to verify it's working
->
-> If there are errors, troubleshoot using the README's troubleshooting section.
 
 ## License
 

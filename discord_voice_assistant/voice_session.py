@@ -18,7 +18,7 @@ from discord_voice_assistant.audio.voice_id import VoiceIdentifier
 from discord_voice_assistant.integrations.openclaw import OpenClawClient
 
 if TYPE_CHECKING:
-    from discord_voice_assistant.bot import ClippyBot
+    from discord_voice_assistant.bot import VoiceAssistantBot
     from discord_voice_assistant.config import Config
 
 log = logging.getLogger(__name__)
@@ -28,7 +28,7 @@ class VoiceSession:
     """A single voice conversation in a channel, processing audio in real-time."""
 
     def __init__(
-        self, bot: ClippyBot, config: Config, channel: discord.VoiceChannel
+        self, bot: VoiceAssistantBot, config: Config, channel: discord.VoiceChannel
     ) -> None:
         self.bot = bot
         self.config = config
@@ -183,7 +183,7 @@ class VoiceSession:
             )
 
             if response:
-                log.info("[Clippy] %s", response[:100])
+                log.info("[Assistant] %s", response[:100])
                 await self._speak(response)
 
     async def _speak(self, text: str) -> None:
