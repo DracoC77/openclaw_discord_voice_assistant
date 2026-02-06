@@ -2,8 +2,10 @@ version: "3.8"
 
 services:
   discord-voice-assistant:
-    build: .
-    image: openclaw-discord-voice-assistant:latest
+    # Use the pre-built image from GHCR (recommended):
+    image: ghcr.io/dracoc77/openclaw_discord_voice_assistant:latest
+    # Or build locally by uncommenting the next line:
+    # build: .
     container_name: discord-voice-assistant
     restart: unless-stopped
     env_file: .env

@@ -356,7 +356,7 @@ services:
       - openclaw-workspace:/workspace
 
   discord-voice-assistant:
-    build: ./discord-voice-assistant
+    image: ghcr.io/dracoc77/openclaw_discord_voice_assistant:latest
     container_name: discord-voice-assistant
     restart: unless-stopped
     depends_on:

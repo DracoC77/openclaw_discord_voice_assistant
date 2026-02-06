@@ -52,16 +52,18 @@ This is a **standalone Python application** that runs as a Docker sidecar alongs
 
 ### Option 1: Docker alongside OpenClaw (recommended)
 
+A pre-built image is published to GHCR on every push to `main`.
+
 ```bash
-# Clone
+# Clone (for config files and docker-compose.yml)
 git clone https://github.com/DracoC77/openclaw_discord_voice_assistant.git
 cd openclaw_discord_voice_assistant
 
 # Configure
 cp .env.example .env
-# Edit .env: set DISCORD_BOT_TOKEN and OPENCLAW_URL
+# Edit .env: set DISCORD_BOT_TOKEN, OPENCLAW_URL, and OPENCLAW_API_KEY
 
-# Run
+# Run (pulls image from ghcr.io automatically)
 docker compose up -d
 ```
 

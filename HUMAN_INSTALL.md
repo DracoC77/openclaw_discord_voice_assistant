@@ -181,21 +181,33 @@ networks:
     external: true
 ```
 
-Build and start:
+Start (pulls the pre-built image from GHCR automatically):
 ```bash
-docker compose build
 docker compose up -d
 ```
 
+To build locally instead of pulling, edit `docker-compose.yml` and uncomment the
+`build: .` line, then run `docker compose build && docker compose up -d`.
+
 ### Option C: Unraid Template (UI-based)
 
-1. Copy `unraid-template.xml` from the repo to `/boot/config/plugins/dockerMan/templates-user/`
+This uses the pre-built Docker image from GitHub Container Registry — no building needed.
+
+1. Copy `unraid-template.xml` from the repo to `/boot/config/plugins/dockerMan/templates-user/`:
+   ```bash
+   cp /mnt/user/appdata/discord-voice-assistant/unraid-template.xml \
+      /boot/config/plugins/dockerMan/templates-user/discord-voice-assistant.xml
+   ```
 2. In the Unraid web UI: **Docker** → **Add Container** → **Template** dropdown → select **discord-voice-assistant**
 3. Fill in the fields:
    - **Discord Bot Token**: from Step 1
    - **OpenClaw URL**: `http://<openclaw-container-name>:18789`
    - **OpenClaw API Key**: the gateway token from Step 2
 4. Click **Apply**
+
+> **Note:** The repo must be public on GitHub for the GHCR image to be pullable
+> without authentication. If the repo is private, you'd need to configure a
+> GHCR access token on Unraid (`docker login ghcr.io`).
 
 ## Step 4: Verify It's Running
 

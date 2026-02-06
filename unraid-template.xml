@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>discord-voice-assistant</Name>
-  <Repository>openclaw-discord-voice-assistant:latest</Repository>
-  <Registry/>
+  <Repository>ghcr.io/dracoc77/openclaw_discord_voice_assistant:latest</Repository>
+  <Registry>https://ghcr.io</Registry>
   <Network>bridge</Network>
   <MyIP/>
   <Shell>bash</Shell>
