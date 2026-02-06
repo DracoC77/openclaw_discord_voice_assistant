@@ -1,0 +1,191 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>clippy-voice</Name>
+  <Repository>clippy-voice-assistant:latest</Repository>
+  <Registry/>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support/>
+  <Project>https://github.com/DracoC77/openclaw_discord_voice_assistant</Project>
+  <Overview>
+    Discord Voice Assistant for OpenClaw.
+    Clippy joins Discord voice channels, listens for voice commands,
+    communicates with your OpenClaw AI agent, and speaks responses back.
+    Supports wake word detection, speaker identification, and auto-join behavior.
+  </Overview>
+  <Category>Tools: AI</Category>
+  <WebUI/>
+  <TemplateURL/>
+  <Icon>https://raw.githubusercontent.com/DracoC77/openclaw_discord_voice_assistant/main/docs/clippy-icon.png</Icon>
+  <ExtraParams>--restart=unless-stopped</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires>
+    Requires a Discord Bot Token, an OpenClaw instance, and optionally an ElevenLabs API key for premium TTS.
+  </Requires>
+  <Config
+    Name="Discord Bot Token"
+    Target="DISCORD_BOT_TOKEN"
+    Default=""
+    Mode=""
+    Description="Your Discord bot token from the Discord Developer Portal"
+    Type="Variable"
+    Display="always"
+    Required="true"
+    Mask="true"/>
+  <Config
+    Name="OpenClaw URL"
+    Target="OPENCLAW_URL"
+    Default="http://localhost:3000"
+    Mode=""
+    Description="URL of your OpenClaw instance (use container name if on same Docker network)"
+    Type="Variable"
+    Display="always"
+    Required="true"
+    Mask="false"/>
+  <Config
+    Name="OpenClaw API Key"
+    Target="OPENCLAW_API_KEY"
+    Default=""
+    Mode=""
+    Description="API key for OpenClaw (if authentication is enabled)"
+    Type="Variable"
+    Display="always"
+    Required="false"
+    Mask="true"/>
+  <Config
+    Name="OpenClaw Agent ID"
+    Target="OPENCLAW_AGENT_ID"
+    Default="default"
+    Mode=""
+    Description="Agent ID to use for voice sessions"
+    Type="Variable"
+    Display="always"
+    Required="false"
+    Mask="false"/>
+  <Config
+    Name="TTS Provider"
+    Target="TTS_PROVIDER"
+    Default="local"
+    Mode=""
+    Description="Text-to-speech provider: 'local' (Piper/espeak) or 'elevenlabs'"
+    Type="Variable"
+    Display="always"
+    Required="false"
+    Mask="false"/>
+  <Config
+    Name="ElevenLabs API Key"
+    Target="ELEVENLABS_API_KEY"
+    Default=""
+    Mode=""
+    Description="ElevenLabs API key (required if TTS_PROVIDER=elevenlabs)"
+    Type="Variable"
+    Display="always"
+    Required="false"
+    Mask="true"/>
+  <Config
+    Name="STT Model Size"
+    Target="STT_MODEL_SIZE"
+    Default="base"
+    Mode=""
+    Description="Whisper model size: tiny, base, small, medium, large-v2, large-v3"
+    Type="Variable"
+    Display="always"
+    Required="false"
+    Mask="false"/>
+  <Config
+    Name="Wake Word Enabled"
+    Target="WAKE_WORD_ENABLED"
+    Default="true"
+    Mode=""
+    Description="Enable wake word detection (true/false)"
+    Type="Variable"
+    Display="always"
+    Required="false"
+    Mask="false"/>
+  <Config
+    Name="Auto-Join Enabled"
+    Target="AUTO_JOIN_ENABLED"
+    Default="true"
+    Mode=""
+    Description="Auto-join voice channels when authorized users connect (true/false)"
+    Type="Variable"
+    Display="always"
+    Required="false"
+    Mask="false"/>
+  <Config
+    Name="Inactivity Timeout"
+    Target="INACTIVITY_TIMEOUT"
+    Default="300"
+    Mode=""
+    Description="Seconds of inactivity before leaving voice channel (0 to disable)"
+    Type="Variable"
+    Display="always"
+    Required="false"
+    Mask="false"/>
+  <Config
+    Name="Authorized User IDs"
+    Target="AUTHORIZED_USER_IDS"
+    Default=""
+    Mode=""
+    Description="Comma-separated Discord user IDs (leave empty to allow all)"
+    Type="Variable"
+    Display="always"
+    Required="false"
+    Mask="false"/>
+  <Config
+    Name="Log Level"
+    Target="LOG_LEVEL"
+    Default="INFO"
+    Mode=""
+    Description="Logging level: DEBUG, INFO, WARNING, ERROR"
+    Type="Variable"
+    Display="advanced"
+    Required="false"
+    Mask="false"/>
+  <Config
+    Name="Timezone"
+    Target="TZ"
+    Default="America/New_York"
+    Mode=""
+    Description="Container timezone"
+    Type="Variable"
+    Display="always"
+    Required="false"
+    Mask="false"/>
+  <Config
+    Name="Data Directory"
+    Target="/app/data"
+    Default="/mnt/user/appdata/clippy-voice/data"
+    Mode="rw"
+    Description="Persistent data (voice profiles, etc.)"
+    Type="Path"
+    Display="always"
+    Required="true"
+    Mask="false"/>
+  <Config
+    Name="Models Directory"
+    Target="/app/models"
+    Default="/mnt/user/appdata/clippy-voice/models"
+    Mode="rw"
+    Description="AI model cache (Whisper, wake word, TTS models)"
+    Type="Path"
+    Display="always"
+    Required="true"
+    Mask="false"/>
+  <Config
+    Name="Logs Directory"
+    Target="/app/logs"
+    Default="/mnt/user/appdata/clippy-voice/logs"
+    Mode="rw"
+    Description="Application logs"
+    Type="Path"
+    Display="advanced"
+    Required="false"
+    Mask="false"/>
+</Container>
