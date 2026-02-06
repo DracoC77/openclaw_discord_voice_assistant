@@ -8,11 +8,11 @@ from typing import TYPE_CHECKING
 
 import discord
 
-from clippy.voice_session import VoiceSession
+from discord_voice_assistant.voice_session import VoiceSession
 
 if TYPE_CHECKING:
-    from clippy.bot import ClippyBot
-    from clippy.config import Config
+    from discord_voice_assistant.bot import ClippyBot
+    from discord_voice_assistant.config import Config
 
 log = logging.getLogger(__name__)
 

@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <Container version="2">
-  <Name>clippy-voice</Name>
-  <Repository>clippy-voice-assistant:latest</Repository>
+  <Name>discord-voice-assistant</Name>
+  <Repository>openclaw-discord-voice-assistant:latest</Repository>
   <Registry/>
   <Network>bridge</Network>
   <MyIP/>
@@ -11,14 +11,14 @@
   <Project>https://github.com/DracoC77/openclaw_discord_voice_assistant</Project>
   <Overview>
     Discord Voice Assistant for OpenClaw.
-    Clippy joins Discord voice channels, listens for voice commands,
+    Joins Discord voice channels, listens for voice commands,
     communicates with your OpenClaw AI agent, and speaks responses back.
     Supports wake word detection, speaker identification, and auto-join behavior.
   </Overview>
   <Category>Tools: AI</Category>
   <WebUI/>
   <TemplateURL/>
-  <Icon>https://raw.githubusercontent.com/DracoC77/openclaw_discord_voice_assistant/main/docs/clippy-icon.png</Icon>
+  <Icon>https://raw.githubusercontent.com/DracoC77/openclaw_discord_voice_assistant/main/docs/icon.png</Icon>
   <ExtraParams>--restart=unless-stopped</ExtraParams>
   <PostArgs/>
   <CPUset/>
@@ -161,7 +161,7 @@
   <Config
     Name="Data Directory"
     Target="/app/data"
-    Default="/mnt/user/appdata/clippy-voice/data"
+    Default="/mnt/user/appdata/discord-voice-assistant/data"
     Mode="rw"
     Description="Persistent data (voice profiles, etc.)"
     Type="Path"
@@ -171,7 +171,7 @@
   <Config
     Name="Models Directory"
     Target="/app/models"
-    Default="/mnt/user/appdata/clippy-voice/models"
+    Default="/mnt/user/appdata/discord-voice-assistant/models"
     Mode="rw"
     Description="AI model cache (Whisper, wake word, TTS models)"
     Type="Path"
@@ -181,7 +181,7 @@
   <Config
     Name="Logs Directory"
     Target="/app/logs"
-    Default="/mnt/user/appdata/clippy-voice/logs"
+    Default="/mnt/user/appdata/discord-voice-assistant/logs"
     Mode="rw"
     Description="Application logs"
     Type="Path"

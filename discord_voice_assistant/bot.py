@@ -8,12 +8,12 @@ from typing import TYPE_CHECKING
 import discord
 from discord.ext import commands
 
-from clippy.commands.general import GeneralCommands
-from clippy.commands.voice import VoiceCommands
-from clippy.voice_manager import VoiceManager
+from discord_voice_assistant.commands.general import GeneralCommands
+from discord_voice_assistant.commands.voice import VoiceCommands
+from discord_voice_assistant.voice_manager import VoiceManager
 
 if TYPE_CHECKING:
-    from clippy.config import Config
+    from discord_voice_assistant.config import Config
 
 log = logging.getLogger(__name__)
 

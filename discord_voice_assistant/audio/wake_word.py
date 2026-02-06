@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 if TYPE_CHECKING:
-    from clippy.config import WakeWordConfig
+    from discord_voice_assistant.config import WakeWordConfig
 
 log = logging.getLogger(__name__)
 

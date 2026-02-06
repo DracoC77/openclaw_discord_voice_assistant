@@ -10,16 +10,16 @@ from typing import TYPE_CHECKING
 
 import discord
 
-from clippy.audio.sink import StreamingSink
-from clippy.audio.stt import SpeechToText
-from clippy.audio.tts import TextToSpeech
-from clippy.audio.wake_word import WakeWordDetector
-from clippy.audio.voice_id import VoiceIdentifier
-from clippy.integrations.openclaw import OpenClawClient
+from discord_voice_assistant.audio.sink import StreamingSink
+from discord_voice_assistant.audio.stt import SpeechToText
+from discord_voice_assistant.audio.tts import TextToSpeech
+from discord_voice_assistant.audio.wake_word import WakeWordDetector
+from discord_voice_assistant.audio.voice_id import VoiceIdentifier
+from discord_voice_assistant.integrations.openclaw import OpenClawClient
 
 if TYPE_CHECKING:
-    from clippy.bot import ClippyBot
-    from clippy.config import Config
+    from discord_voice_assistant.bot import ClippyBot
+    from discord_voice_assistant.config import Config
 
 log = logging.getLogger(__name__)
 

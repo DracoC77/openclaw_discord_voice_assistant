@@ -1,4 +1,4 @@
-# Clippy - Discord Voice Assistant for OpenClaw
+# Discord Voice Assistant for OpenClaw
 
 A Discord bot that brings voice conversation capabilities to [OpenClaw](https://openclaw.ai). Clippy joins your Discord voice channels, listens for speech, communicates with your OpenClaw AI agent, and speaks responses back — enabling hands-free AI conversations.
 
@@ -84,7 +84,7 @@ cp .env.example .env
 ### 4. Run
 
 ```bash
-python -m clippy.main
+python -m discord_voice_assistant.main
 ```
 
 ## Slash Commands
@@ -142,20 +142,20 @@ docker compose up -d
 ### Building the Image
 
 ```bash
-docker build -t clippy-voice-assistant .
+docker build -t openclaw-discord-voice-assistant .
 ```
 
 ### Running Directly
 
 ```bash
 docker run -d \
-  --name clippy-voice \
+  --name discord-voice-assistant \
   --restart unless-stopped \
   --env-file .env \
   -v $(pwd)/data:/app/data \
   -v $(pwd)/models:/app/models \
   -v $(pwd)/logs:/app/logs \
-  clippy-voice-assistant
+  openclaw-discord-voice-assistant
 ```
 
 ## Unraid Deployment
@@ -164,10 +164,10 @@ docker run -d \
 
 1. Install the **Docker Compose Manager** plugin from Community Applications
 2. SSH into your Unraid server
-3. Clone this repo or copy the files to `/mnt/user/appdata/clippy-voice/`
+3. Clone this repo or copy the files to `/mnt/user/appdata/discord-voice-assistant/`
 
 ```bash
-cd /mnt/user/appdata/clippy-voice
+cd /mnt/user/appdata/discord-voice-assistant
 git clone https://github.com/DracoC77/openclaw_discord_voice_assistant.git .
 cp .env.example .env
 nano .env  # Configure your settings
@@ -182,13 +182,13 @@ docker compose up -d
 5. View logs:
 
 ```bash
-docker compose logs -f clippy
+docker compose logs -f discord-voice-assistant
 ```
 
 ### Option B: Unraid Template
 
 1. Copy `unraid-template.xml` to your Unraid templates directory
-2. In the Unraid web UI, go to **Docker** → **Add Container** → **Template** → select "clippy-voice"
+2. In the Unraid web UI, go to **Docker** → **Add Container** → **Template** → select "discord-voice-assistant"
 3. Fill in the configuration fields
 4. Click **Apply**
 
@@ -198,9 +198,9 @@ Unraid uses `/mnt/user/appdata/` for Docker container persistent data. The templ
 
 | Container Path | Unraid Default Path | Purpose |
 |---|---|---|
-| `/app/data` | `/mnt/user/appdata/clippy-voice/data` | Voice profiles, session data |
-| `/app/models` | `/mnt/user/appdata/clippy-voice/models` | AI model cache (Whisper, etc.) |
-| `/app/logs` | `/mnt/user/appdata/clippy-voice/logs` | Application logs |
+| `/app/data` | `/mnt/user/appdata/discord-voice-assistant/data` | Voice profiles, session data |
+| `/app/models` | `/mnt/user/appdata/discord-voice-assistant/models` | AI model cache (Whisper, etc.) |
+| `/app/logs` | `/mnt/user/appdata/discord-voice-assistant/logs` | Application logs |
 
 **Important**: The first startup will download AI models (Whisper, openWakeWord). This may take several minutes and requires internet access. Models are cached in the models volume for subsequent runs.
 
@@ -216,19 +216,19 @@ If OpenClaw is also running as a Docker container on the same Unraid server:
 
 **Container won't start:**
 ```bash
-docker logs clippy-voice
+docker logs discord-voice-assistant
 ```
 
 **Permission issues:**
 ```bash
 # Fix permissions on appdata directories
-chmod -R 755 /mnt/user/appdata/clippy-voice/
+chmod -R 755 /mnt/user/appdata/discord-voice-assistant/
 ```
 
 **No audio / FFmpeg errors:**
 The Docker image includes FFmpeg. If you see codec errors, ensure the image built correctly:
 ```bash
-docker exec clippy-voice ffmpeg -version
+docker exec discord-voice-assistant ffmpeg -version
 ```
 
 **Model download failures:**
@@ -255,7 +255,7 @@ See [`.env.example`](.env.example) for all available configuration options with 
 ## Project Structure
 
 ```
-clippy/
+discord_voice_assistant/
 ├── __init__.py
 ├── main.py              # Entry point
 ├── bot.py               # Discord bot core
@@ -288,7 +288,7 @@ If you want your OpenClaw agent to deploy and manage this bot, here's a prompt y
 > - OpenClaw is running at http://[openclaw-container]:3000
 >
 > Steps:
-> 1. Clone the repo to /mnt/user/appdata/clippy-voice/
+> 1. Clone the repo to /mnt/user/appdata/discord-voice-assistant/
 > 2. Create .env from .env.example with my Discord token: [token]
 > 3. Set OPENCLAW_URL to point to the OpenClaw container
 > 4. Run docker compose up -d

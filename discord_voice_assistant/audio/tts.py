@@ -10,7 +10,7 @@ import wave
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from clippy.config import TTSConfig
+    from discord_voice_assistant.config import TTSConfig
 
 log = logging.getLogger(__name__)
 

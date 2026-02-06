@@ -1,10 +1,10 @@
 version: "3.8"
 
 services:
-  clippy:
+  discord-voice-assistant:
     build: .
-    image: clippy-voice-assistant:latest
-    container_name: clippy-voice
+    image: openclaw-discord-voice-assistant:latest
+    container_name: discord-voice-assistant
     restart: unless-stopped
     env_file: .env
     environment:
@@ -18,7 +18,7 @@ services:
       - ./models:/app/models
       # Logs
       - ./logs:/app/logs
-    # For Unraid, these paths map to /mnt/user/appdata/clippy-voice/*
+    # For Unraid, these paths map to /mnt/user/appdata/discord-voice-assistant/*
     # See unraid-template.xml for Unraid-specific configuration
 
     # Network: needs outbound access for Discord API, OpenClaw, and optionally ElevenLabs
@@ -34,7 +34,7 @@ services:
 
     # Health check
     healthcheck:
-      test: ["CMD", "python", "-c", "import clippy; print('ok')"]
+      test: ["CMD", "python", "-c", "import discord_voice_assistant; print('ok')"]
       interval: 30s
       timeout: 10s
       retries: 3

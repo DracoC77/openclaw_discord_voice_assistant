@@ -10,7 +10,7 @@ import discord
 from discord.ext import commands
 
 if TYPE_CHECKING:
-    from clippy.bot import ClippyBot
+    from discord_voice_assistant.bot import ClippyBot
 
 log = logging.getLogger(__name__)
 

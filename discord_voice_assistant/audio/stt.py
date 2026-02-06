@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 if TYPE_CHECKING:
-    from clippy.config import STTConfig
+    from discord_voice_assistant.config import STTConfig
 
 log = logging.getLogger(__name__)
 

@@ -29,4 +29,4 @@ ENV MODELS_DIR=/app/models
 
 VOLUME ["/app/data", "/app/models", "/app/logs"]
 
-ENTRYPOINT ["python", "-m", "clippy.main"]
+ENTRYPOINT ["python", "-m", "discord_voice_assistant.main"]

@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 import aiohttp
 
 if TYPE_CHECKING:
-    from clippy.config import OpenClawConfig
+    from discord_voice_assistant.config import OpenClawConfig
 
 log = logging.getLogger(__name__)
 

@@ -1,4 +1,4 @@
-"""Entry point for the Clippy Discord Voice Assistant."""
+"""Entry point for the Discord Voice Assistant."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ import asyncio
 import logging
 import sys
 
-from clippy.bot import ClippyBot
-from clippy.config import Config
+from discord_voice_assistant.bot import ClippyBot
+from discord_voice_assistant.config import Config
 
 
 def setup_logging(level: str) -> None:
@@ -25,7 +25,7 @@ def main() -> None:
     config = Config()
 
     setup_logging(config.log_level)
-    log = logging.getLogger("clippy")
+    log = logging.getLogger("discord_voice_assistant")
 
     errors = config.validate()
     if errors:
@@ -33,7 +33,7 @@ def main() -> None:
             log.error("Config error: %s", err)
         sys.exit(1)
 
-    log.info("Starting Clippy v%s", "0.1.0")
+    log.info("Starting Discord Voice Assistant v%s", "0.1.0")
 
     bot = ClippyBot(config)
 
