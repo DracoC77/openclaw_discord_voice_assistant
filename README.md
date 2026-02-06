@@ -30,7 +30,7 @@ This is a **standalone Python application** that runs as a Docker sidecar alongs
        │  wake word detection (openWakeWord)
        │  speech-to-text (Faster Whisper)
        │
-       │  HTTP (/api/v1/chat)
+       │  HTTP (/v1/chat/completions)
        v
   [OpenClaw Container]  ── Node.js, your AI agent
        │
@@ -48,7 +48,7 @@ This is a **standalone Python application** that runs as a Docker sidecar alongs
 
 - Docker and docker-compose (recommended) OR Python 3.10+ with FFmpeg
 - A Discord Bot Token ([create one here](https://discord.com/developers/applications))
-- A running OpenClaw instance
+- A running OpenClaw instance with the [Gateway HTTP API enabled](#openclaw-side-setup)
 
 ### Option 1: Docker alongside OpenClaw (recommended)
 
@@ -138,6 +138,51 @@ When all human users leave the channel, the bot leaves immediately. When only un
 ### Speaker Identification
 Use `/enroll` to record a 10-second voice sample. The bot uses this to verify speaker identity via voice biometric embeddings, adding an extra verification layer on top of Discord's per-user audio streams.
 
+## OpenClaw-Side Setup
+
+The voice assistant communicates with OpenClaw through its Gateway HTTP API (`/v1/chat/completions`). This API is **disabled by default** and must be enabled.
+
+### 1. Enable the Gateway HTTP API
+
+Set `gateway.bind` to `"lan"` in your OpenClaw configuration:
+
+**openclaw.json** (inside `~/.openclaw/` or the container's config volume):
+```json
+{
+  "gateway": {
+    "bind": "lan",
+    "auth": {
+      "token": "your-secret-token"
+    }
+  }
+}
+```
+
+Or via environment variables on the OpenClaw container:
+```
+OPENCLAW_GATEWAY_BIND=lan
+OPENCLAW_GATEWAY_TOKEN=your-secret-token
+```
+
+### 2. Set the Auth Token in Voice Assistant
+
+Copy the same token to the voice assistant's `.env`:
+```
+OPENCLAW_API_KEY=your-secret-token
+```
+
+### 3. Verify
+
+The default gateway port is **18789**. After restarting OpenClaw, test:
+```bash
+curl -H "Authorization: Bearer your-secret-token" \
+     -H "Content-Type: application/json" \
+     -d '{"model":"openclaw","messages":[{"role":"user","content":"hello"}]}' \
+     http://<openclaw-host>:18789/v1/chat/completions
+```
+
+See [`AGENT_INSTALL.md`](AGENT_INSTALL.md#openclaw-side-configuration) for detailed steps.
+
 ## Deploying with OpenClaw
 
 ### Docker Compose Sidecar (recommended)
@@ -146,7 +191,7 @@ This runs the voice assistant as a separate container on the same Docker network
 
 ```bash
 cp .env.example .env
-# Set DISCORD_BOT_TOKEN and OPENCLAW_URL=http://<openclaw-container-name>:3000
+# Set DISCORD_BOT_TOKEN and OPENCLAW_URL=http://<openclaw-container-name>:18789
 docker compose up -d
 ```
 
@@ -207,10 +252,10 @@ docker compose logs -f discord-voice-assistant
 docker ps | grep -i openclaw
 
 # Set OPENCLAW_URL to the container name (internal Docker DNS)
-OPENCLAW_URL=http://openclaw-container-name:3000
+OPENCLAW_URL=http://openclaw-container-name:18789
 
 # Or use the Unraid host IP
-OPENCLAW_URL=http://192.168.x.x:3000
+OPENCLAW_URL=http://192.168.x.x:18789
 ```
 
 ### Troubleshooting
@@ -225,16 +270,17 @@ docker stats discord-voice-assistant         # Memory usage
 
 **Memory by STT model:** tiny ~150MB, base ~300MB, small ~600MB, medium ~1.5GB, large-v3 ~3GB
 
-## Giving This to Your OpenClaw Agent
+## Installation Guides
 
-See [`AGENT_INSTALL.md`](AGENT_INSTALL.md) for a complete guide designed for an OpenClaw agent to follow autonomously.
+- **[`HUMAN_INSTALL.md`](HUMAN_INSTALL.md)** — Step-by-step guide for manual Unraid deployment (start here)
+- **[`AGENT_INSTALL.md`](AGENT_INSTALL.md)** — Guide designed for an OpenClaw agent to follow autonomously
 
 Quick prompt for your agent:
 
 > I need you to deploy the Discord Voice Assistant on my Unraid server.
 > Read the AGENT_INSTALL.md file at https://github.com/DracoC77/openclaw_discord_voice_assistant
 > for step-by-step instructions. My Discord bot token is [token] and OpenClaw
-> is running at http://[container-name]:3000.
+> is running at http://[container-name]:18789.
 
 ## Configuration Reference
 
@@ -243,7 +289,7 @@ See [`.env.example`](.env.example) for all available options. Key settings:
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `DISCORD_BOT_TOKEN` | Yes | — | Discord bot token |
-| `OPENCLAW_URL` | Yes | `http://localhost:3000` | OpenClaw API URL |
+| `OPENCLAW_URL` | Yes | `http://localhost:18789` | OpenClaw Gateway URL |
 | `BOT_NAME` | No | `Clippy` | Display name in bot responses |
 | `AUTHORIZED_USER_IDS` | No | — | Comma-separated Discord user IDs |
 | `STT_MODEL_SIZE` | No | `base` | tiny/base/small/medium/large-v3 |
@@ -275,6 +321,7 @@ discord_voice_assistant/
 scripts/
 └── install.sh           # Automated install script
 AGENT_INSTALL.md         # Guide for OpenClaw agent deployment
+HUMAN_INSTALL.md         # Step-by-step human install guide for Unraid
 ```
 
 ## License

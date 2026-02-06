@@ -99,13 +99,13 @@ EOF
 
     # Suggest OPENCLAW_URL
     OPENCLAW_PORT=$(docker inspect "$OPENCLAW_CONTAINER" --format '{{range $p, $conf := .NetworkSettings.Ports}}{{$p}}{{end}}' 2>/dev/null | grep -o '[0-9]*' | head -1)
-    OPENCLAW_PORT="${OPENCLAW_PORT:-3000}"
+    OPENCLAW_PORT="${OPENCLAW_PORT:-18789}"
     SUGGESTED_URL="http://${OPENCLAW_CONTAINER}:${OPENCLAW_PORT}"
     info "Suggested OPENCLAW_URL: $SUGGESTED_URL"
 
     # Update .env if OPENCLAW_URL is still the default
-    if grep -q "OPENCLAW_URL=http://localhost:3000" "$INSTALL_DIR/.env"; then
-        sed -i "s|OPENCLAW_URL=http://localhost:3000|OPENCLAW_URL=${SUGGESTED_URL}|" "$INSTALL_DIR/.env"
+    if grep -q "OPENCLAW_URL=http://localhost:18789" "$INSTALL_DIR/.env"; then
+        sed -i "s|OPENCLAW_URL=http://localhost:18789|OPENCLAW_URL=${SUGGESTED_URL}|" "$INSTALL_DIR/.env"
         info "Updated OPENCLAW_URL in .env to: $SUGGESTED_URL"
     fi
 else

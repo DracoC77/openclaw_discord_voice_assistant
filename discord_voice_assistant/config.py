@@ -29,7 +29,7 @@ class DiscordConfig:
 
 @dataclass(frozen=True)
 class OpenClawConfig:
-    url: str = os.getenv("OPENCLAW_URL", "http://localhost:3000")
+    url: str = os.getenv("OPENCLAW_URL", "http://localhost:18789")
     api_key: str = os.getenv("OPENCLAW_API_KEY", "")
     agent_id: str = os.getenv("OPENCLAW_AGENT_ID", "default")
 

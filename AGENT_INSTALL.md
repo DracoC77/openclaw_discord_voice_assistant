@@ -7,7 +7,7 @@ install, configure, and troubleshoot the Discord Voice Assistant.
 
 The Discord Voice Assistant is a **separate Python application** that runs alongside
 OpenClaw as a Docker sidecar container. It communicates with OpenClaw over HTTP
-(`/api/v1/chat`). It is NOT an OpenClaw plugin/channel -- it's a standalone bot.
+(`/v1/chat/completions`). It is NOT an OpenClaw plugin/channel -- it's a standalone bot.
 
 **Architecture:**
 ```
@@ -60,7 +60,7 @@ cd "$INSTALL_DIR"
 docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Ports}}"
 
 # Common names: openclaw, openclaw-gateway, etc.
-# Note the container name and port (usually 3000 or 18789)
+# Note the container name and port (default gateway port is 18789)
 ```
 
 ### 5. Check what Docker network OpenClaw uses
@@ -87,7 +87,8 @@ cp .env.example .env
 Edit `.env` with these **required** settings:
 ```
 DISCORD_BOT_TOKEN=<the-discord-bot-token>
-OPENCLAW_URL=http://<openclaw-container-name>:<port>
+OPENCLAW_URL=http://<openclaw-container-name>:18789
+OPENCLAW_API_KEY=<your-gateway-auth-token>
 ```
 
 Optional but recommended:
@@ -144,6 +145,96 @@ The script will:
 - Auto-configure `OPENCLAW_URL`
 - Create data directories
 - Build and start the container
+
+## OpenClaw-Side Configuration
+
+The voice assistant connects to OpenClaw's Gateway HTTP API, which uses the
+OpenAI-compatible `/v1/chat/completions` endpoint. **This API is disabled by
+default** and must be explicitly enabled.
+
+### 1. Enable the Gateway HTTP API
+
+The gateway's HTTP interface is controlled by the `gateway.bind` setting.
+By default it's set to `"loopback"` (localhost only, no external access).
+
+**Option A: Edit `openclaw.json`** (usually at `~/.openclaw/openclaw.json` or
+`/home/node/.openclaw/openclaw.json` inside the container):
+
+```json
+{
+  "gateway": {
+    "bind": "lan"
+  }
+}
+```
+
+**Option B: Set the environment variable** on the OpenClaw container:
+
+```
+OPENCLAW_GATEWAY_BIND=lan
+```
+
+### 2. Set an Authentication Token
+
+When `bind` is set to anything other than `"loopback"`, authentication is
+**required**. Set a secret token that the voice assistant will use to
+authenticate.
+
+**Option A: Edit `openclaw.json`:**
+
+```json
+{
+  "gateway": {
+    "bind": "lan",
+    "auth": {
+      "token": "your-secret-token-here"
+    }
+  }
+}
+```
+
+**Option B: Environment variable** on the OpenClaw container:
+
+```
+OPENCLAW_GATEWAY_TOKEN=your-secret-token-here
+```
+
+Then set the same token in the voice assistant's `.env`:
+
+```
+OPENCLAW_API_KEY=your-secret-token-here
+```
+
+### 3. Verify the Gateway Port
+
+The default gateway port is **18789**. If you've customized it, update
+`OPENCLAW_URL` accordingly. To check, look at the OpenClaw startup logs
+for a line like:
+
+```
+Gateway listening on 0.0.0.0:18789
+```
+
+### 4. Restart OpenClaw
+
+After changing the configuration, restart the OpenClaw container:
+
+```bash
+docker restart <openclaw-container-name>
+```
+
+### 5. Test Connectivity
+
+From the Docker host, test the gateway is reachable:
+
+```bash
+curl -H "Authorization: Bearer your-secret-token-here" \
+     http://<openclaw-container-name>:18789/v1/chat/completions \
+     -d '{"model":"openclaw","messages":[{"role":"user","content":"hello"}]}' \
+     -H "Content-Type: application/json"
+```
+
+You should get a JSON response with `choices[0].message.content`.
 
 ## Troubleshooting
 
@@ -227,9 +318,9 @@ docker compose up -d
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `DISCORD_BOT_TOKEN` | Yes | - | Discord bot token |
-| `OPENCLAW_URL` | Yes | `http://localhost:3000` | OpenClaw API URL |
+| `OPENCLAW_URL` | Yes | `http://localhost:18789` | OpenClaw Gateway URL |
 | `BOT_NAME` | No | `Clippy` | Display name in responses |
-| `OPENCLAW_API_KEY` | No | - | OpenClaw auth key |
+| `OPENCLAW_API_KEY` | Recommended | - | Gateway auth token (matches `OPENCLAW_GATEWAY_TOKEN`) |
 | `OPENCLAW_AGENT_ID` | No | `default` | Agent for voice sessions |
 | `TTS_PROVIDER` | No | `local` | `local` or `elevenlabs` |
 | `ELEVENLABS_API_KEY` | No | - | Required if TTS=elevenlabs |
@@ -254,9 +345,12 @@ services:
     container_name: openclaw
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "18789:18789"
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      # Enable the gateway HTTP API for the voice assistant
+      - OPENCLAW_GATEWAY_BIND=lan
+      - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN}
     volumes:
       - openclaw-config:/home/node/.openclaw
       - openclaw-workspace:/workspace
@@ -269,7 +363,8 @@ services:
       - openclaw
     environment:
       - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
-      - OPENCLAW_URL=http://openclaw:3000
+      - OPENCLAW_URL=http://openclaw:18789
+      - OPENCLAW_API_KEY=${OPENCLAW_GATEWAY_TOKEN}
       - BOT_NAME=${BOT_NAME:-Clippy}
       - AUTHORIZED_USER_IDS=${AUTHORIZED_USER_IDS:-}
       - STT_MODEL_SIZE=${STT_MODEL_SIZE:-base}
