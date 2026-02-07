@@ -19,8 +19,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 RUN pip install --no-cache-dir -e .
 
-# Create data directories
-RUN mkdir -p /app/data/voice_profiles /app/models /app/logs
+# Create non-root user
+RUN useradd -m -s /bin/bash appuser
+
+# Create data directories and set ownership
+RUN mkdir -p /app/data/voice_profiles /app/models /app/logs \
+    && chown -R appuser:appuser /app
+
+USER appuser
 
 # Runtime configuration
 ENV PYTHONUNBUFFERED=1

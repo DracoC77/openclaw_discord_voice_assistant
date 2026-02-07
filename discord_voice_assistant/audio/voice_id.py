@@ -60,7 +60,7 @@ class VoiceIdentifier:
         for profile_path in self.profiles_dir.glob("*.npy"):
             try:
                 user_id = int(profile_path.stem)
-                self._profiles[user_id] = np.load(profile_path)
+                self._profiles[user_id] = np.load(profile_path, allow_pickle=False)
             except (ValueError, Exception) as e:
                 log.warning("Failed to load voice profile %s: %s", profile_path, e)
 
