@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment and secrets
+.env
+*.pem
+*.key
+
+# Audio/model caches
+models/
+*.tflite
+*.bin
+*.pt
+*.onnx
+
+# Logs
+logs/
+*.log
+
+# Docker
+docker-compose.override.yml
+
+# Voice profiles (may contain user audio data)
+data/voice_profiles/*.npy
+
+# OS
+.DS_Store
+Thumbs.db

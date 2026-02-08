@@ -1,0 +1,43 @@
+version: "3.8"
+
+services:
+  discord-voice-assistant:
+    # Use the pre-built image from GHCR (recommended):
+    image: ghcr.io/dracoc77/openclaw_discord_voice_assistant:latest
+    # Or build locally by uncommenting the next line:
+    # build: .
+    container_name: discord-voice-assistant
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - TZ=${TZ:-America/New_York}
+      - DATA_DIR=/app/data
+      - MODELS_DIR=/app/models
+    volumes:
+      # Persistent data (voice profiles, etc.)
+      - ./data:/app/data
+      # Model cache (Whisper models, wake word models, TTS models)
+      - ./models:/app/models
+      # Logs
+      - ./logs:/app/logs
+    # For Unraid, these paths map to /mnt/user/appdata/discord-voice-assistant/*
+    # See unraid-template.xml for Unraid-specific configuration
+
+    # Network: needs outbound access for Discord API, OpenClaw, and optionally ElevenLabs
+    network_mode: bridge
+
+    # Resource limits (adjust based on STT model size)
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 1G
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "python", "-c", "import discord_voice_assistant; print('ok')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s

@@ -1,0 +1,25 @@
+# Core
+py-cord[voice]>=2.6.0
+python-dotenv>=1.0.0
+aiohttp>=3.9.0
+websockets>=12.0
+
+# Speech-to-Text
+faster-whisper>=1.0.0
+
+# Wake Word Detection
+openwakeword>=0.6.0
+
+# Text-to-Speech (local)
+piper-tts>=1.2.0
+
+# Audio Processing
+numpy>=1.24.0
+pydub>=0.25.1
+scipy>=1.11.0
+
+# Voice Identification
+resemblyzer>=0.1.3
+
+# Optional: ElevenLabs TTS
+# elevenlabs>=1.0.0
