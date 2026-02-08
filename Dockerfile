@@ -1,12 +1,17 @@
 FROM python:3.11-slim AS base
 
 # System dependencies for audio processing
+# gcc and python3-dev are needed to compile webrtcvad (C extension),
+# a transitive dependency of resemblyzer. They are removed after pip install
+# to keep the image small.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     libopus0 \
     libopus-dev \
     espeak-ng \
     libsndfile1 \
+    gcc \
+    python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -18,6 +23,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 RUN pip install --no-cache-dir -e .
+
+# Remove build tools no longer needed at runtime
+RUN apt-get purge -y --auto-remove gcc python3-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
 RUN useradd -m -s /bin/bash appuser
