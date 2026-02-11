@@ -105,6 +105,36 @@ curl -s -H "Authorization: Bearer pick-a-secret-password-here" \
 You should see a JSON response. If you get "connection refused", the gateway
 isn't enabled yet. If you get a 401, your token doesn't match.
 
+### Create a Voice Agent (Recommended)
+
+For the best voice experience, create a **separate OpenClaw agent** specifically
+for voice conversations. This is important because:
+
+- Without it, the bot's responses may be **long and verbose** (great for chat,
+  terrible for voice)
+- The agent might use **markdown formatting** that TTS reads literally
+  (e.g. "asterisk asterisk bold text asterisk asterisk")
+- A voice agent lets you tune the personality independently from your chat agent
+
+**How to set it up:**
+
+1. In OpenClaw, create a new agent (e.g. named `voice`)
+2. Give it this system prompt (customize to taste):
+
+   > You are a voice assistant responding in a Discord voice channel. Your
+   > responses will be converted to speech by a text-to-speech engine and played
+   > aloud. Keep every reply to 1-3 short spoken sentences. Never use markdown
+   > formatting, bullet points, numbered lists, code blocks, or emoji — these
+   > will be read literally by TTS. Respond in plain, natural, conversational
+   > speech. Be helpful but extremely concise.
+
+3. Note the agent ID (e.g. `voice`) — you'll use it in the next step when
+   configuring `OPENCLAW_AGENT_ID`
+
+> **If you skip this step**, the bot includes a fallback instruction in each
+> message asking for concise plain-text responses. It works but is less reliable
+> than a dedicated agent prompt.
+
 ## Step 3: Install the Voice Assistant
 
 ### Option A: Automated Script (recommended)
@@ -135,7 +165,10 @@ Set these values:
 ```
 DISCORD_BOT_TOKEN=your-discord-bot-token-from-step-1
 OPENCLAW_API_KEY=the-same-secret-password-from-step-2
+OPENCLAW_AGENT_ID=voice
 ```
+> Set `OPENCLAW_AGENT_ID` to the voice agent you created in Step 2. If you
+> skipped that step, leave it as `default`.
 
 Then restart:
 ```bash
@@ -164,6 +197,7 @@ Fill in these values in `.env`:
 DISCORD_BOT_TOKEN=your-discord-bot-token
 OPENCLAW_URL=http://<openclaw-container-name>:18789
 OPENCLAW_API_KEY=the-same-gateway-token-from-step-2
+OPENCLAW_AGENT_ID=voice
 ```
 
 Check if OpenClaw is on a custom Docker network:
@@ -248,6 +282,7 @@ These go in `/mnt/user/appdata/discord-voice-assistant/.env`:
 | `DISCORD_BOT_TOKEN` | *(required)* | Your Discord bot token |
 | `OPENCLAW_URL` | `http://localhost:18789` | OpenClaw gateway address |
 | `OPENCLAW_API_KEY` | *(empty)* | Gateway auth token |
+| `OPENCLAW_AGENT_ID` | `default` | Voice agent ID ([see above](#create-a-voice-agent-recommended)) |
 | `BOT_NAME` | `Clippy` | Name shown in bot responses |
 | `STT_MODEL_SIZE` | `base` | Speech-to-text model: `tiny`, `base`, `small`, `medium`, `large-v3` |
 | `TTS_PROVIDER` | `local` | `local` (free, runs on CPU) or `elevenlabs` (paid, better quality) |

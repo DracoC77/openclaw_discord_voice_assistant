@@ -170,21 +170,38 @@ Add the following to your OpenClaw configuration file (`~/.openclaw/openclaw.jso
 - **`gateway.auth.token`** — secures the gateway when `bind` is not `"loopback"`
 - **`gateway.http.endpoints.chatCompletions.enabled: true`** — enables the `/v1/chat/completions` endpoint (this is what causes `405 Method Not Allowed` if missing)
 
-### 2. Configure the Voice Assistant
+### 2. Create a Voice Agent (Recommended)
+
+For best results, create a dedicated OpenClaw agent optimized for voice interactions. The agent's system prompt controls how responses are formatted — without a voice-specific prompt, responses will be long, verbose, and may include markdown that TTS reads literally (e.g. "asterisk asterisk").
+
+In your OpenClaw agent configuration, create a new agent (e.g. `voice`) with a system prompt like:
+
+> You are a voice assistant responding in a Discord voice channel. Your responses will be converted to speech by a text-to-speech engine and played aloud. Keep every reply to 1-3 short spoken sentences. Never use markdown formatting, bullet points, numbered lists, code blocks, or emoji — these will be read literally by TTS. Respond in plain, natural, conversational speech. Be helpful but extremely concise.
+
+You can customize this prompt to fit your use case — the key requirements are:
+- **Short responses** (1-3 sentences) so TTS playback doesn't take forever
+- **No markdown/formatting** so TTS doesn't read "asterisk asterisk bold text"
+- **Conversational tone** since the output is spoken, not read on screen
+
+Note the agent ID you create (e.g. `voice`) — you'll use it in the next step.
+
+> **Without a dedicated voice agent**, the bot includes a fallback instruction in each message asking for concise, plain-text responses. This works but is less reliable than a proper agent system prompt.
+
+### 3. Configure the Voice Assistant
 
 Set these in the voice assistant's `.env` or Docker environment:
 
 ```
 OPENCLAW_URL=http://<openclaw-host>:18789
 OPENCLAW_API_KEY=your-secret-token
-OPENCLAW_AGENT_ID=main
+OPENCLAW_AGENT_ID=voice
 ```
 
 - **`OPENCLAW_URL`** — use your host's LAN IP or Docker container name (not `localhost`, which refers to the voice assistant container itself)
 - **`OPENCLAW_API_KEY`** — the same token you set in `gateway.auth.token`
-- **`OPENCLAW_AGENT_ID`** — the OpenClaw agent to route requests to (e.g. `main`); set to `default` to omit the header
+- **`OPENCLAW_AGENT_ID`** — the OpenClaw agent to route requests to (e.g. `voice`); set to `default` to omit the header and use the default agent
 
-### 3. Verify
+### 4. Verify
 
 After restarting OpenClaw, test from the machine running the voice assistant:
 ```bash
