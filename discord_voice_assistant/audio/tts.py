@@ -89,6 +89,12 @@ class TextToSpeech:
                     "Install with: pip install piper-tts"
                 )
                 return self._synthesize_espeak_fallback(text)
+            except FileNotFoundError:
+                log.warning(
+                    "Piper model not found at %s, falling back to espeak-ng",
+                    self.config.local_model,
+                )
+                return self._synthesize_espeak_fallback(text)
 
         # Synthesize to WAV
         wav_buffer = io.BytesIO()
