@@ -61,9 +61,9 @@
   <Config
     Name="OpenClaw Agent ID"
     Target="OPENCLAW_AGENT_ID"
-    Default="default"
+    Default="voice"
     Mode=""
-    Description="Agent ID to use for voice sessions"
+    Description="OpenClaw agent ID for voice sessions. Create a dedicated 'voice' agent with a TTS-friendly system prompt (see README). Set to 'default' to use the default agent."
     Type="Variable"
     Display="always"
     Required="false"
