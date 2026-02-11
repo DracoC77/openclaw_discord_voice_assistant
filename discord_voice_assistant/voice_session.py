@@ -77,7 +77,7 @@ class VoiceSession:
         )
 
         # Start recording with our streaming sink
-        self._sink = StreamingSink(self._on_audio_chunk)
+        self._sink = StreamingSink(self._on_audio_chunk, asyncio.get_running_loop())
         self.voice_client.start_recording(self._sink, self._on_recording_stop)
 
         log.info(
@@ -116,8 +116,8 @@ class VoiceSession:
             self.channel = channel
             log.info("Moved to %s/%s", self.guild.name, channel.name)
 
-    def _on_recording_stop(self, sink: discord.sinks.Sink, *args) -> None:
-        """Called when recording stops."""
+    async def _on_recording_stop(self, sink: discord.sinks.Sink, *args) -> None:
+        """Called when recording stops (py-cord requires this to be async)."""
         log.debug("Recording stopped")
 
     async def _on_audio_chunk(

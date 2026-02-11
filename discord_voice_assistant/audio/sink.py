@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import struct
 import time
 from collections import defaultdict
 from typing import Callable, Awaitable
@@ -40,16 +39,17 @@ class StreamingSink(discord.sinks.Sink):
     def __init__(
         self,
         callback: Callable[[int, bytes, int], Awaitable[None]],
+        loop: asyncio.AbstractEventLoop,
     ) -> None:
         super().__init__()
         self._callback = callback
+        self._loop = loop
         # user_id -> list of raw PCM bytes chunks
         self._buffers: dict[int, bytearray] = defaultdict(bytearray)
         # user_id -> timestamp of last voice activity
         self._last_speech: dict[int, float] = {}
         # user_id -> whether currently speaking
         self._speaking: dict[int, bool] = defaultdict(bool)
-        self._loop: asyncio.AbstractEventLoop | None = None
         # user_id -> asyncio.Task for silence monitoring
         self._silence_tasks: dict[int, asyncio.Task] = {}
 
@@ -57,15 +57,10 @@ class StreamingSink(discord.sinks.Sink):
     def write(self, data: bytes, user: int) -> None:
         """Called by Pycord for each audio packet from a user.
 
+        NOTE: This runs in the recv_audio thread, NOT the event loop.
         Data is raw PCM: 48kHz, 2 channels (stereo), 16-bit signed LE.
         Each packet is typically 20ms of audio = 3840 bytes.
         """
-        if self._loop is None:
-            try:
-                self._loop = asyncio.get_running_loop()
-            except RuntimeError:
-                return
-
         # Check if this chunk contains actual speech (energy-based VAD)
         rms = self._compute_rms(data)
 
@@ -74,19 +69,30 @@ class StreamingSink(discord.sinks.Sink):
             self._last_speech[user] = time.monotonic()
             self._buffers[user].extend(data)
 
-            # Cancel any pending silence task
+            # Cancel any pending silence task (thread-safe via call_soon_threadsafe)
             if user in self._silence_tasks:
-                self._silence_tasks[user].cancel()
-                del self._silence_tasks[user]
+                self._loop.call_soon_threadsafe(self._cancel_silence_task, user)
         elif self._speaking[user]:
             # Still accumulate a little silence at the end for natural cutoff
             self._buffers[user].extend(data)
 
             # Start silence monitoring if not already running
             if user not in self._silence_tasks:
-                self._silence_tasks[user] = self._loop.create_task(
-                    self._check_silence(user)
-                )
+                self._loop.call_soon_threadsafe(self._start_silence_check, user)
+
+    def _start_silence_check(self, user: int) -> None:
+        """Schedule a silence check task on the event loop. Must be called from event loop."""
+        if user in self._silence_tasks:
+            return
+        self._silence_tasks[user] = self._loop.create_task(
+            self._check_silence(user)
+        )
+
+    def _cancel_silence_task(self, user: int) -> None:
+        """Cancel a pending silence check. Must be called from event loop."""
+        task = self._silence_tasks.pop(user, None)
+        if task:
+            task.cancel()
 
     async def _check_silence(self, user: int) -> None:
         """Wait for sustained silence, then flush the buffer for processing."""
@@ -104,6 +110,8 @@ class StreamingSink(discord.sinks.Sink):
                 await self._flush_buffer(user)
         except asyncio.CancelledError:
             pass
+        finally:
+            self._silence_tasks.pop(user, None)
 
     async def _flush_buffer(self, user: int) -> None:
         """Process accumulated audio for a user."""
