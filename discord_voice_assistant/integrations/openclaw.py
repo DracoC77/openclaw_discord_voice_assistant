@@ -92,7 +92,18 @@ class OpenClawClient:
 
             payload = {
                 "model": "openclaw",
-                "messages": [{"role": "user", "content": content}],
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are responding via voice in a Discord voice channel. "
+                            "Keep responses concise and conversational — 1-3 sentences. "
+                            "Do NOT use markdown, bullet points, numbered lists, or emoji. "
+                            "Respond in plain, natural speech."
+                        ),
+                    },
+                    {"role": "user", "content": content},
+                ],
                 "user": session_id,
             }
 
@@ -155,7 +166,18 @@ class OpenClawClient:
 
             payload = {
                 "model": "openclaw",
-                "messages": [{"role": "user", "content": content}],
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are responding via voice in a Discord voice channel. "
+                            "Keep responses concise and conversational — 1-3 sentences. "
+                            "Do NOT use markdown, bullet points, numbered lists, or emoji. "
+                            "Respond in plain, natural speech."
+                        ),
+                    },
+                    {"role": "user", "content": content},
+                ],
                 "user": session_id,
                 "stream": True,
             }
