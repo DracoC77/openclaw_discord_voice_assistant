@@ -20,7 +20,6 @@ class TextToSpeech:
 
     def __init__(self, config: TTSConfig) -> None:
         self.config = config
-        self._piper = None
         self._elevenlabs_client = None
 
     async def synthesize(self, text: str) -> bytes | None:
@@ -77,41 +76,35 @@ class TextToSpeech:
         return await loop.run_in_executor(None, self._synthesize_piper_sync, text)
 
     def _synthesize_piper_sync(self, text: str) -> bytes | None:
-        """Synchronous Piper TTS synthesis."""
-        if self._piper is None:
-            try:
-                from piper import PiperVoice
-                log.info("Loading Piper TTS model: %s", self.config.local_model)
-                self._piper = PiperVoice.load(self.config.local_model)
-            except ImportError:
-                log.error(
-                    "piper-tts package not installed. "
-                    "Install with: pip install piper-tts"
-                )
-                return self._synthesize_espeak_fallback(text)
-            except FileNotFoundError:
-                log.warning(
-                    "Piper model not found at %s, falling back to espeak-ng",
-                    self.config.local_model,
-                )
-                return self._synthesize_espeak_fallback(text)
+        """Synchronous Piper TTS synthesis via CLI subprocess.
 
-        # Pre-set WAV headers before calling synthesize() — some piper
-        # versions don't set them, causing wave.Error on close.
-        sample_rate = getattr(self._piper.config, "sample_rate", 22050)
-        wav_buffer = io.BytesIO()
-        wav_file = wave.open(wav_buffer, "wb")
-        wav_file.setnchannels(1)
-        wav_file.setsampwidth(2)  # 16-bit
-        wav_file.setframerate(sample_rate)
+        Uses the piper CLI (installed by piper-tts) rather than the Python API,
+        which has version-specific bugs with wave header writing.
+        """
+        import subprocess
+
+        model_path = self.config.local_model
+
         try:
-            self._piper.synthesize(text, wav_file)
-        except Exception:
-            wav_file.close()
-            log.exception("Piper synthesis error, falling back to espeak-ng")
-            return self._synthesize_espeak_fallback(text)
-        wav_file.close()
-        return wav_buffer.getvalue()
+            result = subprocess.run(
+                ["piper", "--model", model_path, "--output_file", "-"],
+                input=text.encode("utf-8"),
+                capture_output=True,
+                timeout=60,
+            )
+            if result.returncode == 0 and len(result.stdout) > 44:
+                return result.stdout  # WAV format
+            log.warning(
+                "Piper produced no audio (rc=%d, stderr=%s)",
+                result.returncode,
+                result.stderr.decode(errors="replace")[:200],
+            )
+        except FileNotFoundError:
+            log.warning("piper CLI not found, falling back to espeak-ng")
+        except subprocess.TimeoutExpired:
+            log.warning("Piper TTS timed out")
+
+        return self._synthesize_espeak_fallback(text)
 
     def _synthesize_espeak_fallback(self, text: str) -> bytes | None:
         """Ultimate fallback: use espeak via subprocess."""
