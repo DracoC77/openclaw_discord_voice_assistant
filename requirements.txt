@@ -12,6 +12,7 @@ openwakeword>=0.6.0
 
 # Text-to-Speech (local)
 piper-tts>=1.2.0
+pathvalidate>=3.0.0  # required by piper-tts but not declared as dependency
 
 # Audio Processing
 numpy>=1.24.0
