@@ -90,19 +90,19 @@ class OpenClawClient:
             # Prefix the message with the speaker's name for multi-user context
             content = f"[{sender_name}]: {text}" if sender_name else text
 
+            # Voice instruction is embedded in the user message because OpenClaw's
+            # agent has its own system prompt that overrides any system message we send.
+            voice_instruction = (
+                "(You are responding via voice in a Discord voice channel. "
+                "Keep your reply to 1-3 short spoken sentences. "
+                "Do NOT use markdown, bullet points, numbered lists, or emoji. "
+                "Reply in plain, natural, conversational speech.) "
+            )
+
             payload = {
                 "model": "openclaw",
                 "messages": [
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are responding via voice in a Discord voice channel. "
-                            "Keep responses concise and conversational — 1-3 sentences. "
-                            "Do NOT use markdown, bullet points, numbered lists, or emoji. "
-                            "Respond in plain, natural speech."
-                        ),
-                    },
-                    {"role": "user", "content": content},
+                    {"role": "user", "content": voice_instruction + content},
                 ],
                 "user": session_id,
             }
@@ -164,19 +164,17 @@ class OpenClawClient:
 
             content = f"[{sender_name}]: {text}" if sender_name else text
 
+            voice_instruction = (
+                "(You are responding via voice in a Discord voice channel. "
+                "Keep your reply to 1-3 short spoken sentences. "
+                "Do NOT use markdown, bullet points, numbered lists, or emoji. "
+                "Reply in plain, natural, conversational speech.) "
+            )
+
             payload = {
                 "model": "openclaw",
                 "messages": [
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are responding via voice in a Discord voice channel. "
-                            "Keep responses concise and conversational — 1-3 sentences. "
-                            "Do NOT use markdown, bullet points, numbered lists, or emoji. "
-                            "Respond in plain, natural speech."
-                        ),
-                    },
-                    {"role": "user", "content": content},
+                    {"role": "user", "content": voice_instruction + content},
                 ],
                 "user": session_id,
                 "stream": True,

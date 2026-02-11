@@ -113,15 +113,22 @@ class VoiceManager:
         self, guild_id: int, channel: discord.VoiceChannel
     ) -> None:
         """Check if we should leave because no authorized users remain."""
+        # Count non-bot members in the channel
+        human_members = [m for m in channel.members if not m.bot]
+
         if guild_id not in self._sessions:
+            # No session but bot might be stuck in the channel (orphaned connection)
+            if not human_members:
+                guild = channel.guild
+                if guild.voice_client and guild.voice_client.is_connected():
+                    log.info("Cleaning up orphaned voice connection in %s", channel.name)
+                    await guild.voice_client.disconnect(force=True)
             return
 
         session = self._sessions[guild_id]
         if not session.voice_client or session.voice_client.channel != channel:
             return
 
-        # Count non-bot members in the channel
-        human_members = [m for m in channel.members if not m.bot]
         authorized_members = [m for m in human_members if self.is_authorized(m.id)]
 
         if not human_members:
