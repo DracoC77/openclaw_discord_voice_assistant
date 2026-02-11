@@ -92,10 +92,16 @@ class VoiceSession:
         self.is_active = False
 
         if self.voice_client:
-            if self.voice_client.recording:
-                self.voice_client.stop_recording()
-            if self.voice_client.is_connected():
-                await self.voice_client.disconnect()
+            try:
+                if self.voice_client.recording:
+                    self.voice_client.stop_recording()
+            except Exception:
+                log.debug("Error stopping recording (expected during cleanup)")
+            try:
+                if self.voice_client.is_connected():
+                    await self.voice_client.disconnect(force=True)
+            except Exception:
+                log.debug("Error disconnecting voice client (expected during cleanup)")
             self.voice_client = None
 
         if self._openclaw and self._session_id:
