@@ -94,11 +94,16 @@ OPENCLAW_API_KEY=<your-gateway-auth-token>
 Optional but recommended:
 ```
 BOT_NAME=Clippy
+OPENCLAW_AGENT_ID=voice
 AUTHORIZED_USER_IDS=<comma-separated-discord-user-ids>
 STT_MODEL_SIZE=base
 TTS_PROVIDER=local
 INACTIVITY_TIMEOUT=300
 ```
+
+> **Note:** Set `OPENCLAW_AGENT_ID` to a dedicated voice agent for best results.
+> See [Create a Dedicated Voice Agent](#3-create-a-dedicated-voice-agent-recommended)
+> in the OpenClaw-Side Configuration section.
 
 ### 7. Build and start
 
@@ -205,7 +210,37 @@ Then set the same token in the voice assistant's `.env`:
 OPENCLAW_API_KEY=your-secret-token-here
 ```
 
-### 3. Verify the Gateway Port
+### 3. Create a Dedicated Voice Agent (Recommended)
+
+For the best voice experience, create a separate OpenClaw agent specifically for
+voice interactions. Without this, the bot's responses may be long, verbose, and
+include markdown formatting that TTS reads literally (e.g. "asterisk asterisk").
+
+Create a new agent in OpenClaw (e.g. with ID `voice`) and give it a system prompt
+optimized for spoken output:
+
+```
+You are a voice assistant responding in a Discord voice channel. Your responses
+will be converted to speech by a text-to-speech engine and played aloud. Keep
+every reply to 1-3 short spoken sentences. Never use markdown formatting, bullet
+points, numbered lists, code blocks, or emoji — these will be read literally by
+TTS. Respond in plain, natural, conversational speech. Be helpful but extremely
+concise.
+```
+
+Then set the agent ID in the voice assistant's `.env`:
+
+```
+OPENCLAW_AGENT_ID=voice
+```
+
+**Why this matters:** OpenClaw agents have their own system prompts that take
+precedence over any system message sent via the `/v1/chat/completions` API. The
+only reliable way to control response formatting is through the agent's own
+system prompt. Without a voice-specific agent, the bot falls back to embedding
+formatting instructions in the user message, which is less reliable.
+
+### 4. Verify the Gateway Port
 
 The default gateway port is **18789**. If you've customized it, update
 `OPENCLAW_URL` accordingly. To check, look at the OpenClaw startup logs
@@ -215,7 +250,7 @@ for a line like:
 Gateway listening on 0.0.0.0:18789
 ```
 
-### 4. Restart OpenClaw
+### 5. Restart OpenClaw
 
 After changing the configuration, restart the OpenClaw container:
 
@@ -223,7 +258,7 @@ After changing the configuration, restart the OpenClaw container:
 docker restart <openclaw-container-name>
 ```
 
-### 5. Test Connectivity
+### 6. Test Connectivity
 
 From the Docker host, test the gateway is reachable:
 
@@ -321,7 +356,7 @@ docker compose up -d
 | `OPENCLAW_URL` | Yes | `http://localhost:18789` | OpenClaw Gateway URL |
 | `BOT_NAME` | No | `Clippy` | Display name in responses |
 | `OPENCLAW_API_KEY` | Recommended | - | Gateway auth token (matches `OPENCLAW_GATEWAY_TOKEN`) |
-| `OPENCLAW_AGENT_ID` | No | `default` | Agent for voice sessions |
+| `OPENCLAW_AGENT_ID` | Recommended | `default` | Voice agent ID (see [voice agent setup](#3-create-a-dedicated-voice-agent-recommended)) |
 | `TTS_PROVIDER` | No | `local` | `local` or `elevenlabs` |
 | `ELEVENLABS_API_KEY` | No | - | Required if TTS=elevenlabs |
 | `STT_MODEL_SIZE` | No | `base` | tiny/base/small/medium/large-v3 |
