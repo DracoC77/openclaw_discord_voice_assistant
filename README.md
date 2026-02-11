@@ -142,48 +142,65 @@ Use `/enroll` to record a 10-second voice sample. The bot uses this to verify sp
 
 ## OpenClaw-Side Setup
 
-The voice assistant communicates with OpenClaw through its Gateway HTTP API (`/v1/chat/completions`). This API is **disabled by default** and must be enabled.
+The voice assistant communicates with OpenClaw through its Gateway's OpenAI-compatible HTTP API (`/v1/chat/completions`). This endpoint is **disabled by default** and must be enabled.
 
-### 1. Enable the Gateway HTTP API
+### 1. Enable the Chat Completions Endpoint
 
-Set `gateway.bind` to `"lan"` in your OpenClaw configuration:
+Add the following to your OpenClaw configuration file (`~/.openclaw/openclaw.json`, or the config volume in Docker):
 
-**openclaw.json** (inside `~/.openclaw/` or the container's config volume):
-```json
+```json5
 {
-  "gateway": {
-    "bind": "lan",
-    "auth": {
-      "token": "your-secret-token"
+  gateway: {
+    bind: "lan",
+    auth: {
+      token: "your-secret-token"
+    },
+    http: {
+      endpoints: {
+        chatCompletions: {
+          enabled: true
+        }
+      }
     }
   }
 }
 ```
 
-Or via environment variables on the OpenClaw container:
-```
-OPENCLAW_GATEWAY_BIND=lan
-OPENCLAW_GATEWAY_TOKEN=your-secret-token
-```
+- **`gateway.bind: "lan"`** — exposes the gateway beyond localhost (required when the voice assistant runs in a separate Docker container)
+- **`gateway.auth.token`** — secures the gateway when `bind` is not `"loopback"`
+- **`gateway.http.endpoints.chatCompletions.enabled: true`** — enables the `/v1/chat/completions` endpoint (this is what causes `405 Method Not Allowed` if missing)
 
-### 2. Set the Auth Token in Voice Assistant
+### 2. Configure the Voice Assistant
 
-Copy the same token to the voice assistant's `.env`:
+Set these in the voice assistant's `.env` or Docker environment:
+
 ```
+OPENCLAW_URL=http://<openclaw-host>:18789
 OPENCLAW_API_KEY=your-secret-token
+OPENCLAW_AGENT_ID=main
 ```
+
+- **`OPENCLAW_URL`** — use your host's LAN IP or Docker container name (not `localhost`, which refers to the voice assistant container itself)
+- **`OPENCLAW_API_KEY`** — the same token you set in `gateway.auth.token`
+- **`OPENCLAW_AGENT_ID`** — the OpenClaw agent to route requests to (e.g. `main`); set to `default` to omit the header
 
 ### 3. Verify
 
-The default gateway port is **18789**. After restarting OpenClaw, test:
+After restarting OpenClaw, test from the machine running the voice assistant:
 ```bash
-curl -H "Authorization: Bearer your-secret-token" \
+curl -sS http://<openclaw-host>:18789/v1/chat/completions \
+     -H "Authorization: Bearer your-secret-token" \
      -H "Content-Type: application/json" \
-     -d '{"model":"openclaw","messages":[{"role":"user","content":"hello"}]}' \
-     http://<openclaw-host>:18789/v1/chat/completions
+     -H "x-openclaw-agent-id: main" \
+     -d '{"model":"openclaw","messages":[{"role":"user","content":"hello"}]}'
 ```
 
-See [`AGENT_INSTALL.md`](AGENT_INSTALL.md#openclaw-side-configuration) for detailed steps.
+You should get a JSON response with `choices[0].message.content`. If you get:
+- **405 Method Not Allowed** — `chatCompletions.enabled` is not set to `true`
+- **401 Unauthorized** — auth token mismatch between voice assistant and OpenClaw
+- **Connection refused** — wrong IP/port, or `gateway.bind` is still `"loopback"`
+
+See [`AGENT_INSTALL.md`](AGENT_INSTALL.md#openclaw-side-configuration) for detailed steps and the [OpenClaw docs](https://docs.openclaw.ai/gateway/openai-http-api) for the full HTTP API reference.
 
 ## Deploying with OpenClaw
 
@@ -291,7 +308,9 @@ See [`.env.example`](.env.example) for all available options. Key settings:
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `DISCORD_BOT_TOKEN` | Yes | — | Discord bot token |
-| `OPENCLAW_URL` | Yes | `http://localhost:18789` | OpenClaw Gateway URL |
+| `OPENCLAW_URL` | Yes | `http://localhost:18789` | OpenClaw Gateway URL (use host LAN IP in Docker) |
+| `OPENCLAW_API_KEY` | Yes* | — | Gateway auth token (required when `bind` != `loopback`) |
+| `OPENCLAW_AGENT_ID` | No | `default` | OpenClaw agent to route to (e.g. `main`) |
 | `BOT_NAME` | No | `Clippy` | Display name in bot responses |
 | `AUTHORIZED_USER_IDS` | No | — | Comma-separated Discord user IDs |
 | `STT_MODEL_SIZE` | No | `base` | tiny/base/small/medium/large-v3 |
