@@ -200,7 +200,9 @@ class VoiceSession:
             await asyncio.sleep(0.1)
 
         # Play the audio
+        # before_options tells FFmpeg the INPUT is WAV format
+        # (options would override the OUTPUT format that py-cord needs as s16le PCM)
         source = discord.FFmpegPCMAudio(
-            io.BytesIO(audio_bytes), pipe=True, options="-f wav"
+            io.BytesIO(audio_bytes), pipe=True, before_options="-f wav"
         )
         self.voice_client.play(source)
