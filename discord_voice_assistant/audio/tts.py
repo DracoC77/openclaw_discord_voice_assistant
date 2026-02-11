@@ -144,11 +144,14 @@ class TextToSpeech:
             )
             if result.returncode == 0 and len(result.stdout) > 44:
                 return result.stdout  # WAV format
+            stderr_text = result.stderr.decode(errors="replace")
             log.warning(
                 "Piper produced no audio (rc=%d, stderr=%s)",
                 result.returncode,
-                result.stderr.decode(errors="replace")[:200],
+                stderr_text[:500],
             )
+            if result.returncode != 0:
+                log.debug("Full Piper stderr: %s", stderr_text)
         except FileNotFoundError:
             log.warning("piper CLI not found, falling back to espeak-ng")
         except subprocess.TimeoutExpired:
