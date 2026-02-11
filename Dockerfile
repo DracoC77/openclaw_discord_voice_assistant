@@ -40,6 +40,13 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 # Copy application code
 COPY . .
 
+# Download default Piper TTS model (~75MB)
+# Stored in /opt/piper (not /app/models which is a volume mount point)
+RUN mkdir -p /opt/piper && \
+    python -c "import urllib.request; \
+    urllib.request.urlretrieve('https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/lessac/medium/en_US-lessac-medium.onnx', '/opt/piper/en_US-lessac-medium.onnx'); \
+    urllib.request.urlretrieve('https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json', '/opt/piper/en_US-lessac-medium.onnx.json')"
+
 # Create non-root user
 RUN useradd -m -s /bin/bash appuser
 
