@@ -12,7 +12,7 @@ WORKDIR /build
 RUN pip install --no-cache-dir \
     torch --index-url https://download.pytorch.org/whl/cpu
 
-# Install Python dependencies into a virtual env we can copy cleanly
+# Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -28,6 +28,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libopus0 \
     espeak-ng \
     libsndfile1 \
+    gosu \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -46,7 +47,9 @@ RUN useradd -m -s /bin/bash appuser
 RUN mkdir -p /app/data/voice_profiles /app/models /app/logs \
     && chown -R appuser:appuser /app
 
-USER appuser
+# Entrypoint fixes volume permissions then drops to appuser
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Runtime configuration
 ENV PYTHONUNBUFFERED=1
@@ -55,4 +58,5 @@ ENV MODELS_DIR=/app/models
 
 VOLUME ["/app/data", "/app/models", "/app/logs"]
 
-ENTRYPOINT ["python", "-m", "discord_voice_assistant.main"]
+ENTRYPOINT ["docker-entrypoint.sh"]
+CMD ["python", "-m", "discord_voice_assistant.main"]
