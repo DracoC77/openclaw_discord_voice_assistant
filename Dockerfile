@@ -37,6 +37,11 @@ WORKDIR /app
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
+# piper-phonemize bundles native .so files that the dynamic linker needs to find
+RUN ldconfig /usr/local/lib/python3.11/site-packages/piper_phonemize.libs 2>/dev/null; \
+    ldconfig /usr/local/lib/python3.11/site-packages/onnxruntime/capi 2>/dev/null; \
+    ldconfig
+
 # Copy application code
 COPY . .
 

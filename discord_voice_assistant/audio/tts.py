@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+import re
 import struct
 import wave
 from typing import TYPE_CHECKING
@@ -13,6 +14,50 @@ if TYPE_CHECKING:
     from discord_voice_assistant.config import TTSConfig
 
 log = logging.getLogger(__name__)
+
+# Regex patterns for stripping markdown/emoji before TTS
+_MARKDOWN_PATTERNS = [
+    (re.compile(r"```.*?```", re.DOTALL), ""),           # code blocks
+    (re.compile(r"`([^`]+)`"), r"\1"),                    # inline code
+    (re.compile(r"\*\*(.+?)\*\*"), r"\1"),                # bold
+    (re.compile(r"__(.+?)__"), r"\1"),                     # bold alt
+    (re.compile(r"\*(.+?)\*"), r"\1"),                     # italic
+    (re.compile(r"_(.+?)_"), r"\1"),                       # italic alt
+    (re.compile(r"~~(.+?)~~"), r"\1"),                     # strikethrough
+    (re.compile(r"^#{1,6}\s+", re.MULTILINE), ""),         # headers
+    (re.compile(r"^\s*[-*+]\s+", re.MULTILINE), ""),       # bullet points
+    (re.compile(r"\[([^\]]+)\]\([^)]+\)"), r"\1"),         # links
+]
+# Common emoji ranges
+_EMOJI_RE = re.compile(
+    "["
+    "\U0001f300-\U0001f9ff"  # misc symbols, emoticons, etc.
+    "\U00002702-\U000027b0"  # dingbats
+    "\U0000fe00-\U0000fe0f"  # variation selectors
+    "\U0000200d"             # zero-width joiner
+    "\u2600-\u26ff"          # misc symbols
+    "\u2700-\u27bf"          # dingbats
+    "\u2300-\u23ff"          # misc technical
+    "\u2b50-\u2b55"          # stars
+    "\u200d"                 # zwj
+    "\u2934-\u2935"          # arrows
+    "\u25aa-\u25fe"          # geometric shapes
+    "\u2139"                 # info
+    "\u2194-\u21aa"          # arrows
+    "\u2714\u2716\u2728"     # check, x, sparkles
+    "]+",
+    flags=re.UNICODE,
+)
+
+
+def _clean_for_tts(text: str) -> str:
+    """Strip markdown formatting and emoji so TTS reads naturally."""
+    for pattern, replacement in _MARKDOWN_PATTERNS:
+        text = pattern.sub(replacement, text)
+    text = _EMOJI_RE.sub("", text)
+    # Collapse whitespace
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
 
 
 class TextToSpeech:
@@ -28,6 +73,11 @@ class TextToSpeech:
         Returns:
             WAV audio bytes suitable for FFmpeg playback, or None on failure.
         """
+        if not text:
+            return None
+
+        # Strip markdown and emoji so TTS reads naturally
+        text = _clean_for_tts(text)
         if not text:
             return None
 
