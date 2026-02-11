@@ -110,7 +110,11 @@ class VoiceCommands(commands.Cog):
 
         # Record for 10 seconds
         sink = discord.sinks.WaveSink()
-        session.voice_client.start_recording(sink, lambda s: None)
+
+        async def _noop(s):
+            pass
+
+        session.voice_client.start_recording(sink, _noop)
         await asyncio.sleep(10)
         session.voice_client.stop_recording()
 
