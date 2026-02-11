@@ -96,12 +96,20 @@ class TextToSpeech:
                 )
                 return self._synthesize_espeak_fallback(text)
 
-        # Synthesize to WAV
-        wav_buffer = io.BytesIO()
-        with wave.open(wav_buffer, "wb") as wav_file:
-            self._piper.synthesize(text, wav_file)
+        # Synthesize to raw PCM and wrap in WAV ourselves
+        # (PiperVoice.synthesize() doesn't reliably set WAV headers across versions)
+        audio_bytes = b""
+        for chunk in self._piper.synthesize_stream_raw(text):
+            audio_bytes += chunk
 
-        return wav_buffer.getvalue()
+        if not audio_bytes:
+            return None
+
+        return self._pcm_to_wav(
+            audio_bytes,
+            sample_rate=self._piper.config.sample_rate,
+            channels=1,
+        )
 
     def _synthesize_espeak_fallback(self, text: str) -> bytes | None:
         """Ultimate fallback: use espeak via subprocess."""
