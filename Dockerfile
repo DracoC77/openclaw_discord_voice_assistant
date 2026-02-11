@@ -1,32 +1,43 @@
-FROM python:3.11-slim AS base
+# ---- Build stage: compile C extensions (webrtcvad) ----
+FROM python:3.11-slim AS builder
 
-# System dependencies for audio processing
-# gcc and python3-dev are needed to compile webrtcvad (C extension),
-# a transitive dependency of resemblyzer. They are removed after pip install
-# to keep the image small.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg \
-    libopus0 \
-    libopus-dev \
-    espeak-ng \
-    libsndfile1 \
     gcc \
     python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
+WORKDIR /build
 
-# Install Python dependencies
+# Install CPU-only PyTorch first (saves ~1.8GB vs CUDA default)
+RUN pip install --no-cache-dir \
+    torch --index-url https://download.pytorch.org/whl/cpu
+
+# Install Python dependencies into a virtual env we can copy cleanly
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
+# Install the project itself
 COPY . .
 RUN pip install --no-cache-dir .
 
-# Remove build tools no longer needed at runtime
-RUN apt-get purge -y --auto-remove gcc python3-dev \
+# ---- Runtime stage: slim image with only what's needed ----
+FROM python:3.11-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    libopus0 \
+    espeak-ng \
+    libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy installed Python packages from builder
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+
+# Copy application code
+COPY . .
 
 # Create non-root user
 RUN useradd -m -s /bin/bash appuser
