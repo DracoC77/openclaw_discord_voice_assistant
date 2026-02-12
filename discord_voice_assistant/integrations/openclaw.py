@@ -18,7 +18,6 @@ import asyncio
 import json
 import logging
 import time
-import uuid
 from typing import TYPE_CHECKING
 
 import aiohttp
@@ -52,16 +51,56 @@ class OpenClawClient:
         return self._http
 
     async def create_session(self, context: str = "") -> str:
-        """Create a session identifier.
+        """Create a stable session identifier.
 
         OpenClaw doesn't have an explicit session creation endpoint.
-        Instead, the `user` field in /v1/chat/completions determines
-        the session key. We generate a unique ID here and pass it as
-        `user` on every request to maintain conversation continuity.
+        Instead, the ``user`` field in /v1/chat/completions determines
+        the session key.  We use a **stable** ID based on the context
+        (guild + channel) so that OpenClaw reuses the same session
+        across bot reconnects rather than spawning a new one each time.
+        Call :meth:`reset_session` after this to send ``/new`` and
+        clear the conversation history in OpenClaw.
         """
-        session_id = f"voice:{context}:{uuid.uuid4().hex[:12]}"
+        session_id = f"voice:{context}" if context else "voice:main"
         log.info("Created session ID: %s", session_id)
         return session_id
+
+    async def reset_session(self, session_id: str) -> None:
+        """Send ``/new`` to OpenClaw to start a fresh conversation.
+
+        This clears the conversation history on the OpenClaw side
+        without creating a brand-new session key, keeping the
+        session list tidy while still giving us a clean context
+        at the start of every voice session.
+        """
+        log.info("Resetting OpenClaw session: %s", session_id)
+        try:
+            http = await self._get_http()
+
+            payload = {
+                "model": "openclaw",
+                "messages": [
+                    {"role": "user", "content": "/new"},
+                ],
+                "user": session_id,
+            }
+
+            headers = {}
+            if self.config.agent_id and self.config.agent_id != "default":
+                headers["x-openclaw-agent-id"] = self.config.agent_id
+
+            url = f"{self.base_url}/v1/chat/completions"
+            async with http.post(url, json=payload, headers=headers) as resp:
+                if resp.status == 200:
+                    log.info("Session reset successful (session: %s)", session_id)
+                else:
+                    text_resp = await resp.text()
+                    log.warning(
+                        "Session reset returned %d: %s",
+                        resp.status, text_resp[:200],
+                    )
+        except aiohttp.ClientError as e:
+            log.error("Failed to reset session %s: %s", session_id, e)
 
     async def send_message(
         self,

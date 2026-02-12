@@ -82,10 +82,12 @@ class VoiceSession:
             log.info("Voice identification DISABLED")
         self._openclaw = OpenClawClient(self.config.openclaw)
 
-        # Start a new OpenClaw session
+        # Create a stable OpenClaw session (keyed by guild + channel)
+        # and send /new to clear conversation history from previous sessions
         self._session_id = await self._openclaw.create_session(
             context=f"discord:voice:{self.guild.id}:{self.channel.id}"
         )
+        await self._openclaw.reset_session(self._session_id)
 
         # Start recording with our streaming sink
         self._sink = StreamingSink(self._on_audio_chunk, asyncio.get_running_loop())
