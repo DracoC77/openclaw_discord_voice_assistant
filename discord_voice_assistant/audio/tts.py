@@ -135,32 +135,48 @@ def _resolve_piper_model(model: str) -> str:
         return str(onnx_path)
 
 
-def generate_thinking_sound(duration: float = 2.0, sample_rate: int = 48000) -> bytes:
+def generate_thinking_sound(
+    tone1_hz: float = 220,
+    tone2_hz: float = 277,
+    tone_mix: float = 0.6,
+    pulse_hz: float = 0.35,
+    volume: float = 0.15,
+    duration: float = 2.0,
+    sample_rate: int = 48000,
+) -> bytes:
     """Generate a subtle thinking/processing sound as WAV bytes.
 
     Creates a soft, repeating tonal pulse — gentle enough to signal
     "I'm working on it" without being annoying on loop.
+
+    Args:
+        tone1_hz: Primary tone frequency in Hz (default 220 = A3)
+        tone2_hz: Secondary tone frequency in Hz (default 277 = C#4, a major third up)
+        tone_mix: Mix ratio for tone1 vs tone2 (0.0–1.0, default 0.6 = 60% tone1)
+        pulse_hz: How fast the volume pulses (Hz, default 0.35 = fades in/out ~every 3s)
+        volume: Overall volume (0.0–1.0, default 0.15 = 15%)
+        duration: Length of the WAV clip in seconds (loops in playback)
+        sample_rate: Audio sample rate
     """
     import math
 
     num_samples = int(sample_rate * duration)
     samples = []
 
+    tone2_mix = 1.0 - tone_mix
+
     for i in range(num_samples):
         t = i / sample_rate
 
-        # Soft pulse envelope: fades in and out every ~1 second
-        pulse = 0.5 * (1.0 + math.cos(2 * math.pi * 0.5 * t))  # 0.5 Hz pulse
+        # Soft pulse envelope: fades in and out
+        pulse = 0.5 * (1.0 + math.cos(2 * math.pi * pulse_hz * t))
 
-        # Two gentle sine tones for a warm "thinking" timbre
-        tone1 = math.sin(2 * math.pi * 440 * t)   # A4
-        tone2 = math.sin(2 * math.pi * 554 * t)    # C#5 (major third)
+        # Two sine tones for a warm timbre
+        t1 = math.sin(2 * math.pi * tone1_hz * t)
+        t2 = math.sin(2 * math.pi * tone2_hz * t)
 
         # Mix tones and apply pulse envelope
-        sample = (0.6 * tone1 + 0.4 * tone2) * pulse
-
-        # Keep it very quiet (10% of max volume)
-        sample = sample * 0.10
+        sample = (tone_mix * t1 + tone2_mix * t2) * pulse * volume
 
         # Convert to 16-bit PCM
         sample_int = max(-32768, min(32767, int(sample * 32767)))

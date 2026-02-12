@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Thinking Sound Tuner</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #1a1a2e; color: #e0e0e0; min-height: 100vh; padding: 2rem; }
+  h1 { text-align: center; margin-bottom: 0.5rem; color: #7c83ff; }
+  .subtitle { text-align: center; color: #888; margin-bottom: 2rem; font-size: 0.9rem; }
+  .container { max-width: 640px; margin: 0 auto; }
+  .card { background: #16213e; border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; border: 1px solid #2a2a4a; }
+  .card h2 { color: #7c83ff; font-size: 1rem; margin-bottom: 1rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .slider-row { display: flex; align-items: center; margin-bottom: 1rem; gap: 1rem; }
+  .slider-row:last-child { margin-bottom: 0; }
+  .slider-label { width: 110px; font-size: 0.85rem; color: #aaa; flex-shrink: 0; }
+  .slider-label .note { display: block; font-size: 0.7rem; color: #666; }
+  input[type="range"] { flex: 1; accent-color: #7c83ff; height: 6px; cursor: pointer; }
+  .slider-value { width: 70px; text-align: right; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.85rem; color: #7c83ff; flex-shrink: 0; }
+  .buttons { display: flex; gap: 1rem; justify-content: center; margin-bottom: 1.5rem; }
+  button { padding: 0.75rem 2rem; border: none; border-radius: 8px; font-size: 1rem; cursor: pointer; transition: all 0.15s; font-weight: 600; }
+  #playBtn { background: #7c83ff; color: #fff; }
+  #playBtn:hover { background: #6b72e8; }
+  #playBtn.playing { background: #e74c3c; }
+  #playBtn.playing:hover { background: #c0392b; }
+  #copyBtn { background: #2a2a4a; color: #7c83ff; border: 1px solid #7c83ff; }
+  #copyBtn:hover { background: #333366; }
+  #copyBtn.copied { background: #27ae60; color: #fff; border-color: #27ae60; }
+  .env-output { background: #0d1117; border-radius: 8px; padding: 1rem; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.8rem; white-space: pre; overflow-x: auto; color: #a0d0a0; line-height: 1.6; border: 1px solid #2a2a4a; }
+  .waveform-container { height: 80px; background: #0d1117; border-radius: 8px; border: 1px solid #2a2a4a; overflow: hidden; margin-bottom: 1rem; }
+  canvas { width: 100%; height: 100%; display: block; }
+  .preset-row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; }
+  .preset-btn { padding: 0.4rem 0.8rem; border: 1px solid #2a2a4a; border-radius: 6px; background: #1a1a2e; color: #aaa; cursor: pointer; font-size: 0.8rem; transition: all 0.15s; }
+  .preset-btn:hover { border-color: #7c83ff; color: #7c83ff; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Thinking Sound Tuner</h1>
+  <p class="subtitle">Dial in the perfect "thinking" tone, then copy the env vars to your .env file</p>
+
+  <div class="card">
+    <h2>Presets</h2>
+    <div class="preset-row">
+      <button class="preset-btn" data-preset="warm">Warm (new default)</button>
+      <button class="preset-btn" data-preset="original">Original (old)</button>
+      <button class="preset-btn" data-preset="deep">Deep hum</button>
+      <button class="preset-btn" data-preset="gentle">Gentle chime</button>
+      <button class="preset-btn" data-preset="ambient">Ambient</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Tones</h2>
+    <div class="slider-row">
+      <span class="slider-label">Tone 1<span class="note" id="note1">A3</span></span>
+      <input type="range" id="tone1" min="80" max="600" step="1" value="220">
+      <span class="slider-value" id="tone1Val">220 Hz</span>
+    </div>
+    <div class="slider-row">
+      <span class="slider-label">Tone 2<span class="note" id="note2">C#4</span></span>
+      <input type="range" id="tone2" min="80" max="800" step="1" value="277">
+      <span class="slider-value" id="tone2Val">277 Hz</span>
+    </div>
+    <div class="slider-row">
+      <span class="slider-label">Tone Mix<span class="note">tone1 vs tone2</span></span>
+      <input type="range" id="mix" min="0" max="100" step="1" value="60">
+      <span class="slider-value" id="mixVal">0.60</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Envelope</h2>
+    <div class="slider-row">
+      <span class="slider-label">Pulse Rate<span class="note">fade speed</span></span>
+      <input type="range" id="pulse" min="5" max="200" step="1" value="35">
+      <span class="slider-value" id="pulseVal">0.35 Hz</span>
+    </div>
+    <div class="slider-row">
+      <span class="slider-label">Volume<span class="note">0%–50%</span></span>
+      <input type="range" id="volume" min="1" max="50" step="1" value="15">
+      <span class="slider-value" id="volumeVal">15%</span>
+    </div>
+    <div class="slider-row">
+      <span class="slider-label">Duration<span class="note">loop length</span></span>
+      <input type="range" id="duration" min="5" max="60" step="1" value="20">
+      <span class="slider-value" id="durationVal">2.0s</span>
+    </div>
+  </div>
+
+  <div class="waveform-container"><canvas id="waveform"></canvas></div>
+
+  <div class="buttons">
+    <button id="playBtn">Play (loops)</button>
+    <button id="copyBtn">Copy env vars</button>
+  </div>
+
+  <div class="env-output" id="envOutput"></div>
+</div>
+
+<script>
+const NOTES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+function freqToNote(hz) {
+  if (hz <= 0) return '';
+  const n = 12 * Math.log2(hz / 440) + 69;
+  const note = NOTES[Math.round(n) % 12];
+  const oct = Math.floor(Math.round(n) / 12) - 1;
+  return note + oct;
+}
+
+const presets = {
+  warm:     { tone1: 220, tone2: 277, mix: 60, pulse: 35, volume: 15, duration: 20 },
+  original: { tone1: 440, tone2: 554, mix: 60, pulse: 50, volume: 10, duration: 20 },
+  deep:     { tone1: 130, tone2: 165, mix: 70, pulse: 25, volume: 18, duration: 30 },
+  gentle:   { tone1: 330, tone2: 415, mix: 50, pulse: 40, volume: 12, duration: 20 },
+  ambient:  { tone1: 174, tone2: 220, mix: 55, pulse: 20, volume: 13, duration: 40 },
+};
+
+const sliders = {
+  tone1: document.getElementById('tone1'),
+  tone2: document.getElementById('tone2'),
+  mix: document.getElementById('mix'),
+  pulse: document.getElementById('pulse'),
+  volume: document.getElementById('volume'),
+  duration: document.getElementById('duration'),
+};
+
+const canvas = document.getElementById('waveform');
+const ctx = canvas.getContext('2d');
+
+let audioCtx = null;
+let sourceNode = null;
+let playing = false;
+
+function getParams() {
+  return {
+    tone1_hz: +sliders.tone1.value,
+    tone2_hz: +sliders.tone2.value,
+    tone_mix: +sliders.mix.value / 100,
+    pulse_hz: +sliders.pulse.value / 100,
+    volume: +sliders.volume.value / 100,
+    duration: +sliders.duration.value / 10,
+  };
+}
+
+function updateDisplay() {
+  const p = getParams();
+  document.getElementById('tone1Val').textContent = p.tone1_hz + ' Hz';
+  document.getElementById('tone2Val').textContent = p.tone2_hz + ' Hz';
+  document.getElementById('mixVal').textContent = p.tone_mix.toFixed(2);
+  document.getElementById('pulseVal').textContent = p.pulse_hz.toFixed(2) + ' Hz';
+  document.getElementById('volumeVal').textContent = Math.round(p.volume * 100) + '%';
+  document.getElementById('durationVal').textContent = p.duration.toFixed(1) + 's';
+  document.getElementById('note1').textContent = freqToNote(p.tone1_hz);
+  document.getElementById('note2').textContent = freqToNote(p.tone2_hz);
+  updateEnvOutput();
+  drawWaveform();
+}
+
+function updateEnvOutput() {
+  const p = getParams();
+  document.getElementById('envOutput').textContent =
+    `THINKING_TONE1_HZ=${p.tone1_hz}\n` +
+    `THINKING_TONE2_HZ=${p.tone2_hz}\n` +
+    `THINKING_TONE_MIX=${p.tone_mix.toFixed(2)}\n` +
+    `THINKING_PULSE_HZ=${p.pulse_hz.toFixed(2)}\n` +
+    `THINKING_VOLUME=${p.volume.toFixed(2)}\n` +
+    `THINKING_DURATION=${p.duration.toFixed(1)}`;
+}
+
+function generateBuffer(audioContext) {
+  const p = getParams();
+  const sr = 48000;
+  const len = Math.floor(sr * p.duration);
+  const buf = audioContext.createBuffer(1, len, sr);
+  const data = buf.getChannelData(0);
+  const mix2 = 1.0 - p.tone_mix;
+
+  for (let i = 0; i < len; i++) {
+    const t = i / sr;
+    const pulse = 0.5 * (1.0 + Math.cos(2 * Math.PI * p.pulse_hz * t));
+    const t1 = Math.sin(2 * Math.PI * p.tone1_hz * t);
+    const t2 = Math.sin(2 * Math.PI * p.tone2_hz * t);
+    data[i] = (p.tone_mix * t1 + mix2 * t2) * pulse * p.volume;
+  }
+  return buf;
+}
+
+function drawWaveform() {
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const w = rect.width, h = rect.height;
+
+  ctx.fillStyle = '#0d1117';
+  ctx.fillRect(0, 0, w, h);
+
+  const p = getParams();
+  const sr = 1000; // low-res preview
+  const samples = Math.floor(sr * Math.min(p.duration, 4));
+  const mix2 = 1.0 - p.tone_mix;
+
+  ctx.beginPath();
+  ctx.strokeStyle = '#7c83ff';
+  ctx.lineWidth = 1.5;
+
+  for (let i = 0; i < samples; i++) {
+    const t = i / sr;
+    const pulse = 0.5 * (1.0 + Math.cos(2 * Math.PI * p.pulse_hz * t));
+    const t1 = Math.sin(2 * Math.PI * p.tone1_hz * t);
+    const t2 = Math.sin(2 * Math.PI * p.tone2_hz * t);
+    const val = (p.tone_mix * t1 + mix2 * t2) * pulse * p.volume;
+
+    const x = (i / samples) * w;
+    const y = h / 2 - val * h * 1.5;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  // Draw envelope
+  ctx.beginPath();
+  ctx.strokeStyle = 'rgba(124, 131, 255, 0.25)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < samples; i++) {
+    const t = i / sr;
+    const pulse = 0.5 * (1.0 + Math.cos(2 * Math.PI * p.pulse_hz * t));
+    const env = pulse * p.volume;
+    const x = (i / samples) * w;
+    const y = h / 2 - env * h * 1.5;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  ctx.beginPath();
+  for (let i = 0; i < samples; i++) {
+    const t = i / sr;
+    const pulse = 0.5 * (1.0 + Math.cos(2 * Math.PI * p.pulse_hz * t));
+    const env = pulse * p.volume;
+    const x = (i / samples) * w;
+    const y = h / 2 + env * h * 1.5;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+}
+
+function stopAudio() {
+  if (sourceNode) { try { sourceNode.stop(); } catch(e) {} sourceNode = null; }
+  playing = false;
+  document.getElementById('playBtn').textContent = 'Play (loops)';
+  document.getElementById('playBtn').classList.remove('playing');
+}
+
+function playAudio() {
+  stopAudio();
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const buf = generateBuffer(audioCtx);
+  sourceNode = audioCtx.createBufferSource();
+  sourceNode.buffer = buf;
+  sourceNode.loop = true;
+  sourceNode.connect(audioCtx.destination);
+  sourceNode.start();
+  playing = true;
+  document.getElementById('playBtn').textContent = 'Stop';
+  document.getElementById('playBtn').classList.add('playing');
+}
+
+document.getElementById('playBtn').addEventListener('click', () => {
+  playing ? stopAudio() : playAudio();
+});
+
+// Live update while playing
+Object.values(sliders).forEach(s => {
+  s.addEventListener('input', () => {
+    updateDisplay();
+    if (playing) playAudio();
+  });
+});
+
+document.getElementById('copyBtn').addEventListener('click', () => {
+  const text = document.getElementById('envOutput').textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.getElementById('copyBtn');
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy env vars'; btn.classList.remove('copied'); }, 2000);
+  });
+});
+
+document.querySelectorAll('.preset-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const p = presets[btn.dataset.preset];
+    Object.entries(p).forEach(([k, v]) => { sliders[k].value = v; });
+    updateDisplay();
+    if (playing) playAudio();
+  });
+});
+
+updateDisplay();
+</script>
+</body>
+</html>

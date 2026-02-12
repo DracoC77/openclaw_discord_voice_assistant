@@ -154,11 +154,20 @@ class VoiceSession:
         if self._thinking_temp_path and os.path.exists(self._thinking_temp_path):
             return self._thinking_temp_path
 
-        # Generate 2-second thinking sound on first use
+        # Generate thinking sound on first use (params from config)
         if self._thinking_sound is None:
+            ts = self.config.thinking_sound
             loop = asyncio.get_running_loop()
             self._thinking_sound = await loop.run_in_executor(
-                None, generate_thinking_sound
+                None,
+                lambda: generate_thinking_sound(
+                    tone1_hz=ts.tone1_hz,
+                    tone2_hz=ts.tone2_hz,
+                    tone_mix=ts.tone_mix,
+                    pulse_hz=ts.pulse_hz,
+                    volume=ts.volume,
+                    duration=ts.duration,
+                ),
             )
 
         # Write to temp file so FFmpeg can seek/loop it (pipe doesn't support seeking)
