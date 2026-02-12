@@ -136,12 +136,12 @@ def _resolve_piper_model(model: str) -> str:
 
 
 def generate_thinking_sound(
-    tone1_hz: float = 220,
-    tone2_hz: float = 277,
-    tone_mix: float = 0.6,
-    pulse_hz: float = 0.35,
-    volume: float = 0.15,
-    duration: float = 2.0,
+    tone1_hz: float = 130,
+    tone2_hz: float = 130,
+    tone_mix: float = 0.7,
+    pulse_hz: float = 0.3,
+    volume: float = 0.2,
+    duration: float = 2.5,
     sample_rate: int = 48000,
 ) -> bytes:
     """Generate a subtle thinking/processing sound as WAV bytes.
@@ -150,11 +150,11 @@ def generate_thinking_sound(
     "I'm working on it" without being annoying on loop.
 
     Args:
-        tone1_hz: Primary tone frequency in Hz (default 220 = A3)
-        tone2_hz: Secondary tone frequency in Hz (default 277 = C#4, a major third up)
-        tone_mix: Mix ratio for tone1 vs tone2 (0.0–1.0, default 0.6 = 60% tone1)
-        pulse_hz: How fast the volume pulses (Hz, default 0.35 = fades in/out ~every 3s)
-        volume: Overall volume (0.0–1.0, default 0.15 = 15%)
+        tone1_hz: Primary tone frequency in Hz (default 130 = C3)
+        tone2_hz: Secondary tone frequency in Hz (default 130 = C3)
+        tone_mix: Mix ratio for tone1 vs tone2 (0.0–1.0, default 0.7 = 70% tone1)
+        pulse_hz: How fast the volume pulses (Hz, default 0.3 = fades in/out ~every 3s)
+        volume: Overall volume (0.0–1.0, default 0.2 = 20%)
         duration: Length of the WAV clip in seconds (loops in playback)
         sample_rate: Audio sample rate
     """
