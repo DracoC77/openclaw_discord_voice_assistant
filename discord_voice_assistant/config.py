@@ -39,7 +39,7 @@ class TTSConfig:
     provider: str = os.getenv("TTS_PROVIDER", "local")
     elevenlabs_api_key: str = os.getenv("ELEVENLABS_API_KEY", "")
     elevenlabs_voice_id: str = os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
-    local_model: str = os.getenv("LOCAL_TTS_MODEL", "en_US-lessac-medium")
+    local_model: str = os.getenv("LOCAL_TTS_MODEL", "en_US-hfc_male-medium")
 
 
 @dataclass(frozen=True)
