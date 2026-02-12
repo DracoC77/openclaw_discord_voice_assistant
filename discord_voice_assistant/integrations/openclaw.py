@@ -94,9 +94,11 @@ class OpenClawClient:
             # agent has its own system prompt that overrides any system message we send.
             voice_instruction = (
                 "(You are responding via voice in a Discord voice channel. "
-                "Keep your reply to 1-3 short spoken sentences. "
-                "Do NOT use markdown, bullet points, numbered lists, or emoji. "
-                "Reply in plain, natural, conversational speech.) "
+                "Your reply will be read aloud by text-to-speech. "
+                "Be concise and conversational — match response length to the question. "
+                "Simple questions get short answers; complex topics can be longer but stay focused. "
+                "Do NOT use markdown, bullet points, numbered lists, code blocks, or emoji. "
+                "Reply in plain, natural speech.) "
             )
 
             payload = {
@@ -166,9 +168,11 @@ class OpenClawClient:
 
             voice_instruction = (
                 "(You are responding via voice in a Discord voice channel. "
-                "Keep your reply to 1-3 short spoken sentences. "
-                "Do NOT use markdown, bullet points, numbered lists, or emoji. "
-                "Reply in plain, natural, conversational speech.) "
+                "Your reply will be read aloud by text-to-speech. "
+                "Be concise and conversational — match response length to the question. "
+                "Simple questions get short answers; complex topics can be longer but stay focused. "
+                "Do NOT use markdown, bullet points, numbered lists, code blocks, or emoji. "
+                "Reply in plain, natural speech.) "
             )
 
             payload = {

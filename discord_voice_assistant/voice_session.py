@@ -189,26 +189,61 @@ class VoiceSession:
             )
 
             if response:
-                log.info("[Assistant] %s", response[:100])
+                log.info("[Assistant] %s", response)
                 await self._speak(response)
 
     async def _speak(self, text: str) -> None:
         """Convert text to speech and play it in the voice channel."""
         if not self.voice_client or not self.voice_client.is_connected():
+            log.warning("Cannot speak — voice client not connected")
             return
 
         audio_bytes = await self._tts.synthesize(text)
         if not audio_bytes:
+            log.warning("TTS returned no audio for: %s", text[:80])
             return
 
-        # Wait for any current playback to finish
-        while self.voice_client.is_playing():
-            await asyncio.sleep(0.1)
+        log.debug("TTS produced %d bytes of audio", len(audio_bytes))
+
+        # Wait for any current playback to finish (with timeout to avoid hanging)
+        try:
+            wait_start = time.monotonic()
+            while self.voice_client.is_playing():
+                if time.monotonic() - wait_start > 120:
+                    log.warning("Playback wait timed out after 120s, stopping current audio")
+                    self.voice_client.stop()
+                    break
+                await asyncio.sleep(0.1)
+        except Exception:
+            log.debug("Error waiting for playback to finish")
+
+        if not self.voice_client or not self.voice_client.is_connected():
+            log.warning("Voice client disconnected while waiting for playback")
+            return
 
         # Play the audio
         # before_options tells FFmpeg the INPUT is WAV format
         # (options would override the OUTPUT format that py-cord needs as s16le PCM)
-        source = discord.FFmpegPCMAudio(
-            io.BytesIO(audio_bytes), pipe=True, before_options="-f wav"
-        )
-        self.voice_client.play(source)
+        try:
+            source = discord.FFmpegPCMAudio(
+                io.BytesIO(audio_bytes), pipe=True, before_options="-f wav"
+            )
+
+            play_done = asyncio.Event()
+
+            def after_play(error):
+                if error:
+                    log.error("Playback error: %s", error)
+                play_done.set()
+
+            self.voice_client.play(source, after=after_play)
+            log.debug("Playback started")
+
+            # Wait for playback to complete before releasing
+            try:
+                await asyncio.wait_for(play_done.wait(), timeout=120)
+            except asyncio.TimeoutError:
+                log.warning("Playback timed out after 120s")
+                self.voice_client.stop()
+        except Exception:
+            log.exception("Failed to play audio")
