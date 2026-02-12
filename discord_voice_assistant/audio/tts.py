@@ -134,6 +134,47 @@ def _resolve_piper_model(model: str) -> str:
         return str(onnx_path)
 
 
+def generate_thinking_sound(duration: float = 2.0, sample_rate: int = 48000) -> bytes:
+    """Generate a subtle thinking/processing sound as WAV bytes.
+
+    Creates a soft, repeating tonal pulse — gentle enough to signal
+    "I'm working on it" without being annoying on loop.
+    """
+    import math
+
+    num_samples = int(sample_rate * duration)
+    samples = []
+
+    for i in range(num_samples):
+        t = i / sample_rate
+
+        # Soft pulse envelope: fades in and out every ~1 second
+        pulse = 0.5 * (1.0 + math.cos(2 * math.pi * 0.5 * t))  # 0.5 Hz pulse
+
+        # Two gentle sine tones for a warm "thinking" timbre
+        tone1 = math.sin(2 * math.pi * 440 * t)   # A4
+        tone2 = math.sin(2 * math.pi * 554 * t)    # C#5 (major third)
+
+        # Mix tones and apply pulse envelope
+        sample = (0.6 * tone1 + 0.4 * tone2) * pulse
+
+        # Keep it very quiet (10% of max volume)
+        sample = sample * 0.10
+
+        # Convert to 16-bit PCM
+        sample_int = max(-32768, min(32767, int(sample * 32767)))
+        samples.append(struct.pack("<h", sample_int))
+
+    pcm_data = b"".join(samples)
+    wav_buffer = io.BytesIO()
+    with wave.open(wav_buffer, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        wf.writeframes(pcm_data)
+    return wav_buffer.getvalue()
+
+
 class TextToSpeech:
     """Synthesizes speech from text using either ElevenLabs or local Piper TTS."""
 

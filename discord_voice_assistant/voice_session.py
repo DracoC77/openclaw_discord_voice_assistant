@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+import os
+import tempfile
 import time
 from typing import TYPE_CHECKING
 
@@ -12,7 +14,7 @@ import discord
 
 from discord_voice_assistant.audio.sink import StreamingSink
 from discord_voice_assistant.audio.stt import SpeechToText
-from discord_voice_assistant.audio.tts import TextToSpeech
+from discord_voice_assistant.audio.tts import TextToSpeech, generate_thinking_sound
 from discord_voice_assistant.audio.wake_word import WakeWordDetector
 from discord_voice_assistant.audio.voice_id import VoiceIdentifier
 from discord_voice_assistant.integrations.openclaw import OpenClawClient
@@ -47,6 +49,8 @@ class VoiceSession:
         self._processing_lock = asyncio.Lock()
         self._session_id: str | None = None
         self._start_time: float = 0
+        self._thinking_sound: bytes | None = None  # lazy-generated
+        self._thinking_temp_path: str | None = None  # temp file for FFmpeg looping
 
     async def start(self) -> None:
         """Connect to the voice channel and begin listening."""
@@ -107,6 +111,14 @@ class VoiceSession:
         if self._openclaw and self._session_id:
             await self._openclaw.end_session(self._session_id)
 
+        # Clean up thinking sound temp file
+        if self._thinking_temp_path:
+            try:
+                os.unlink(self._thinking_temp_path)
+            except OSError:
+                pass
+            self._thinking_temp_path = None
+
         duration = time.monotonic() - self._start_time if self._start_time else 0
         log.info(
             "Voice session ended in %s/%s (duration: %.0fs)",
@@ -125,6 +137,62 @@ class VoiceSession:
     async def _on_recording_stop(self, sink: discord.sinks.Sink, *args) -> None:
         """Called when recording stops (py-cord requires this to be async)."""
         log.debug("Recording stopped")
+
+    async def _ensure_thinking_sound(self) -> str | None:
+        """Generate thinking sound WAV and write to temp file, return path.
+
+        The temp file is reused across calls (FFmpeg reads it each time).
+        Uses ``-stream_loop -1`` so FFmpeg loops the short clip indefinitely.
+        """
+        if self._thinking_temp_path and os.path.exists(self._thinking_temp_path):
+            return self._thinking_temp_path
+
+        # Generate 2-second thinking sound on first use
+        if self._thinking_sound is None:
+            loop = asyncio.get_running_loop()
+            self._thinking_sound = await loop.run_in_executor(
+                None, generate_thinking_sound
+            )
+
+        # Write to temp file so FFmpeg can seek/loop it (pipe doesn't support seeking)
+        fd, path = tempfile.mkstemp(suffix=".wav")
+        try:
+            os.write(fd, self._thinking_sound)
+        finally:
+            os.close(fd)
+        self._thinking_temp_path = path
+        return path
+
+    async def _start_thinking_sound(self) -> None:
+        """Play a subtle looping thinking sound while waiting for AI response."""
+        if not self.voice_client or not self.voice_client.is_connected():
+            return
+
+        path = await self._ensure_thinking_sound()
+        if not path:
+            return
+
+        try:
+            source = discord.FFmpegPCMAudio(
+                path, before_options="-stream_loop -1"
+            )
+            self.voice_client.play(source)
+            log.debug("Thinking sound started")
+        except Exception:
+            log.debug("Failed to play thinking sound", exc_info=True)
+
+    async def _stop_thinking_sound(self) -> None:
+        """Stop the thinking sound if it's currently playing."""
+        if not self.voice_client:
+            return
+        try:
+            if self.voice_client.is_playing():
+                self.voice_client.stop()
+                # Brief pause for FFmpeg subprocess cleanup
+                await asyncio.sleep(0.05)
+                log.debug("Thinking sound stopped")
+        except Exception:
+            log.debug("Error stopping thinking sound", exc_info=True)
 
     async def _on_audio_chunk(
         self, user_id: int, audio_data: bytes, sample_rate: int
@@ -180,13 +248,19 @@ class VoiceSession:
 
             log.info("[%s] %s", speaker_name, text)
 
+            # Play thinking sound while waiting for AI response
+            await self._start_thinking_sound()
+
             # Send to OpenClaw and get response
-            response = await self._openclaw.send_message(
-                self._session_id,
-                text,
-                sender_name=speaker_name,
-                sender_id=str(user_id),
-            )
+            try:
+                response = await self._openclaw.send_message(
+                    self._session_id,
+                    text,
+                    sender_name=speaker_name,
+                    sender_id=str(user_id),
+                )
+            finally:
+                await self._stop_thinking_sound()
 
             if response:
                 log.info("[Assistant] %s", response)
