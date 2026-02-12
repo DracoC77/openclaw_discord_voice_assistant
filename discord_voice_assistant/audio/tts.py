@@ -5,15 +5,25 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+import os
 import re
 import struct
 import wave
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from discord_voice_assistant.config import TTSConfig
 
 log = logging.getLogger(__name__)
+
+# Where Piper models are stored inside the container
+_PIPER_MODEL_DIR = Path(os.getenv("PIPER_MODEL_DIR", "/opt/piper"))
+
+# HuggingFace base URL for downloading Piper voice models
+_PIPER_HF_BASE = (
+    "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0"
+)
 
 # Regex patterns for stripping markdown/emoji before TTS
 _MARKDOWN_PATTERNS = [
@@ -60,12 +70,77 @@ def _clean_for_tts(text: str) -> str:
     return text
 
 
+def _resolve_piper_model(model: str) -> str:
+    """Resolve a Piper model name or path to an absolute .onnx path.
+
+    Accepts:
+      - Full path:  /opt/piper/en_US-lessac-medium.onnx  (returned as-is)
+      - Model name:  en_US-lessac-medium  (resolved to /opt/piper/<name>.onnx)
+
+    If the resolved file doesn't exist, attempts to download it from HuggingFace.
+    """
+    # If it's already a full path, use it directly
+    if os.path.sep in model or model.endswith(".onnx"):
+        return model
+
+    # It's a model name like "en_US-lessac-medium" — resolve to path
+    onnx_path = _PIPER_MODEL_DIR / f"{model}.onnx"
+    json_path = _PIPER_MODEL_DIR / f"{model}.onnx.json"
+
+    if onnx_path.exists():
+        return str(onnx_path)
+
+    # Auto-download from HuggingFace
+    # Model name format: en_US-lessac-medium → en/en_US/lessac/medium/en_US-lessac-medium.onnx
+    try:
+        parts = model.split("-", 1)
+        if len(parts) != 2:
+            log.error("Invalid Piper model name '%s' — expected format: en_US-voice-quality", model)
+            return str(onnx_path)
+
+        locale = parts[0]  # e.g. "en_US"
+        voice_quality = parts[1]  # e.g. "lessac-medium"
+        lang = locale.split("_")[0]  # e.g. "en"
+
+        # voice_quality could be "lessac-medium" or "hfc_female-medium"
+        # Split on the LAST hyphen to get voice and quality
+        last_dash = voice_quality.rfind("-")
+        if last_dash == -1:
+            log.error("Invalid Piper model name '%s' — missing quality level", model)
+            return str(onnx_path)
+
+        voice = voice_quality[:last_dash]   # e.g. "lessac" or "hfc_female"
+        quality = voice_quality[last_dash + 1:]  # e.g. "medium" or "high"
+
+        base_url = f"{_PIPER_HF_BASE}/{lang}/{locale}/{voice}/{quality}"
+        onnx_url = f"{base_url}/{model}.onnx"
+        json_url = f"{base_url}/{model}.onnx.json"
+
+        log.info("Downloading Piper model '%s' from HuggingFace...", model)
+        _PIPER_MODEL_DIR.mkdir(parents=True, exist_ok=True)
+
+        import urllib.request
+        urllib.request.urlretrieve(onnx_url, str(onnx_path))
+        urllib.request.urlretrieve(json_url, str(json_path))
+
+        log.info("Piper model '%s' downloaded to %s", model, onnx_path)
+        return str(onnx_path)
+
+    except Exception:
+        log.exception("Failed to download Piper model '%s'", model)
+        # Clean up partial downloads
+        onnx_path.unlink(missing_ok=True)
+        json_path.unlink(missing_ok=True)
+        return str(onnx_path)
+
+
 class TextToSpeech:
     """Synthesizes speech from text using either ElevenLabs or local Piper TTS."""
 
     def __init__(self, config: TTSConfig) -> None:
         self.config = config
         self._elevenlabs_client = None
+        self._resolved_model: str | None = None
 
     async def synthesize(self, text: str) -> bytes | None:
         """Convert text to WAV audio bytes.
@@ -133,7 +208,10 @@ class TextToSpeech:
         """
         import subprocess
 
-        model_path = self.config.local_model
+        # Resolve model name to path on first call (and auto-download if needed)
+        if self._resolved_model is None:
+            self._resolved_model = _resolve_piper_model(self.config.local_model)
+        model_path = self._resolved_model
 
         try:
             result = subprocess.run(

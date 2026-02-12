@@ -69,6 +69,16 @@
     Required="false"
     Mask="false"/>
   <Config
+    Name="Piper Voice Model"
+    Target="LOCAL_TTS_MODEL"
+    Default="en_US-lessac-medium"
+    Mode=""
+    Description="Piper TTS voice model name. Auto-downloads from HuggingFace on first use. Examples: en_US-lessac-medium (female), en_US-ryan-high (male), en_GB-cori-high (British female). Full list: https://rhasspy.github.io/piper-samples/"
+    Type="Variable"
+    Display="always"
+    Required="false"
+    Mask="false"/>
+  <Config
     Name="TTS Provider"
     Target="TTS_PROVIDER"
     Default="local"
