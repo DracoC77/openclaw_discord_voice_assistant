@@ -332,9 +332,11 @@ See [`.env.example`](.env.example) for all available options. Key settings:
 | `AUTHORIZED_USER_IDS` | No | — | Comma-separated Discord user IDs |
 | `STT_MODEL_SIZE` | No | `base` | tiny/base/small/medium/large-v3 |
 | `TTS_PROVIDER` | No | `local` | `local` or `elevenlabs` |
-| `WAKE_WORD_ENABLED` | No | `true` | Enable wake word detection |
+| `WAKE_WORD_ENABLED` | No | `false` | Enable wake word detection (disabled by default) |
+| `VOICE_ID_ENABLED` | No | `false` | Speaker verification via voice embeddings (disabled by default) |
 | `AUTO_JOIN_ENABLED` | No | `true` | Auto-join voice channels |
 | `INACTIVITY_TIMEOUT` | No | `300` | Seconds before auto-leave |
+| `DEBUG_VOICE_PIPELINE` | No | `false` | Verbose voice pipeline debug logging (timing, audio stats) |
 
 ## Project Structure
 

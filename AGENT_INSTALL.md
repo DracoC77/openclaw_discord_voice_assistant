@@ -361,11 +361,13 @@ docker compose up -d
 | `TTS_PROVIDER` | No | `local` | `local` or `elevenlabs` |
 | `ELEVENLABS_API_KEY` | No | - | Required if TTS=elevenlabs |
 | `STT_MODEL_SIZE` | No | `base` | tiny/base/small/medium/large-v3 |
-| `WAKE_WORD_ENABLED` | No | `true` | Enable wake word |
+| `WAKE_WORD_ENABLED` | No | `false` | Enable wake word (disabled by default) |
+| `VOICE_ID_ENABLED` | No | `false` | Speaker verification via voice embeddings (disabled by default) |
 | `AUTO_JOIN_ENABLED` | No | `true` | Auto-join voice channels |
 | `INACTIVITY_TIMEOUT` | No | `300` | Seconds before auto-leave |
 | `AUTHORIZED_USER_IDS` | No | - | Comma-separated Discord IDs |
 | `LOG_LEVEL` | No | `INFO` | DEBUG/INFO/WARNING/ERROR |
+| `DEBUG_VOICE_PIPELINE` | No | `false` | Verbose voice pipeline debug logging |
 
 ## Docker Compose with OpenClaw
 
@@ -406,6 +408,9 @@ services:
       - STT_MODEL_SIZE=${STT_MODEL_SIZE:-base}
       - TTS_PROVIDER=${TTS_PROVIDER:-local}
       - INACTIVITY_TIMEOUT=${INACTIVITY_TIMEOUT:-300}
+      - WAKE_WORD_ENABLED=${WAKE_WORD_ENABLED:-false}
+      - VOICE_ID_ENABLED=${VOICE_ID_ENABLED:-false}
+      - DEBUG_VOICE_PIPELINE=${DEBUG_VOICE_PIPELINE:-false}
     volumes:
       - dva-data:/app/data
       - dva-models:/app/models
