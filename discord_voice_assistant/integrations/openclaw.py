@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 import uuid
 from typing import TYPE_CHECKING
 
@@ -113,17 +114,33 @@ class OpenClawClient:
             if self.config.agent_id and self.config.agent_id != "default":
                 headers["x-openclaw-agent-id"] = self.config.agent_id
 
-            async with http.post(
-                f"{self.base_url}/v1/chat/completions",
-                json=payload,
-                headers=headers,
-            ) as resp:
+            url = f"{self.base_url}/v1/chat/completions"
+            log.debug(
+                "OpenClaw request: POST %s agent=%s session=%s msg=%r",
+                url, self.config.agent_id, session_id, content[:100],
+            )
+
+            t0 = time.monotonic()
+            async with http.post(url, json=payload, headers=headers) as resp:
+                elapsed = time.monotonic() - t0
+                log.debug(
+                    "OpenClaw response: status=%d, %.3fs", resp.status, elapsed,
+                )
                 if resp.status == 200:
                     data = await resp.json()
                     # OpenAI format: choices[0].message.content
                     choices = data.get("choices", [])
                     if choices:
-                        return choices[0].get("message", {}).get("content", "")
+                        result = choices[0].get("message", {}).get("content", "")
+                        log.debug(
+                            "OpenClaw response content (%d chars): %r",
+                            len(result), result[:120],
+                        )
+                        return result
+                    log.warning(
+                        "OpenClaw returned 200 but no choices in response: %r",
+                        data,
+                    )
                     return ""
                 elif resp.status == 401:
                     log.error(
@@ -142,7 +159,8 @@ class OpenClawClient:
                 else:
                     text_resp = await resp.text()
                     log.warning(
-                        "OpenClaw returned %d: %s", resp.status, text_resp[:200]
+                        "OpenClaw returned %d (%.3fs): %s",
+                        resp.status, elapsed, text_resp[:200],
                     )
                     return ""
         except aiohttp.ClientError as e:

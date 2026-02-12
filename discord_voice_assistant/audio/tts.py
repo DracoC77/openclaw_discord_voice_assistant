@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import struct
+import time
 import wave
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -190,18 +191,38 @@ class TextToSpeech:
             WAV audio bytes suitable for FFmpeg playback, or None on failure.
         """
         if not text:
+            log.debug("TTS received empty text, returning None")
             return None
 
         # Strip markdown and emoji so TTS reads naturally
+        original_len = len(text)
         text = _clean_for_tts(text)
         if not text:
+            log.debug("TTS text empty after cleaning (was %d chars)", original_len)
             return None
+        log.debug(
+            "TTS cleaned text (%d -> %d chars): %r",
+            original_len, len(text), text[:100],
+        )
 
         try:
+            t0 = time.monotonic()
             if self.config.provider == "elevenlabs":
-                return await self._synthesize_elevenlabs(text)
+                result = await self._synthesize_elevenlabs(text)
             else:
-                return await self._synthesize_local(text)
+                result = await self._synthesize_local(text)
+            elapsed = time.monotonic() - t0
+            if result:
+                log.debug(
+                    "TTS synthesis complete: provider=%s, %d bytes, %.3fs",
+                    self.config.provider, len(result), elapsed,
+                )
+            else:
+                log.warning(
+                    "TTS synthesis returned no audio: provider=%s, %.3fs, text=%r",
+                    self.config.provider, elapsed, text[:80],
+                )
+            return result
         except Exception:
             log.exception("TTS synthesis failed")
             return None
@@ -214,6 +235,7 @@ class TextToSpeech:
                 self._elevenlabs_client = AsyncElevenLabs(
                     api_key=self.config.elevenlabs_api_key
                 )
+                log.debug("ElevenLabs client initialized")
             except ImportError:
                 log.error(
                     "elevenlabs package not installed. "
@@ -221,6 +243,10 @@ class TextToSpeech:
                 )
                 return None
 
+        log.debug(
+            "ElevenLabs request: voice=%s, text_len=%d",
+            self.config.elevenlabs_voice_id, len(text),
+        )
         audio_stream = await self._elevenlabs_client.text_to_speech.convert(
             voice_id=self.config.elevenlabs_voice_id,
             text=text,
@@ -233,6 +259,7 @@ class TextToSpeech:
         async for chunk in audio_stream:
             pcm_data += chunk
 
+        log.debug("ElevenLabs returned %d bytes of PCM", len(pcm_data))
         # Wrap raw PCM in WAV container for FFmpeg
         return self._pcm_to_wav(pcm_data, sample_rate=16000, channels=1)
 
@@ -254,27 +281,34 @@ class TextToSpeech:
             self._resolved_model = _resolve_piper_model(self.config.local_model)
         model_path = self._resolved_model
 
+        log.debug("Piper TTS: model=%s, text_len=%d", model_path, len(text))
+
         try:
+            t0 = time.monotonic()
             result = subprocess.run(
                 ["piper", "--model", model_path, "--output_file", "-"],
                 input=text.encode("utf-8"),
                 capture_output=True,
                 timeout=60,
             )
+            elapsed = time.monotonic() - t0
             if result.returncode == 0 and len(result.stdout) > 44:
+                log.debug(
+                    "Piper produced %d bytes in %.3fs (rc=0)",
+                    len(result.stdout), elapsed,
+                )
                 return result.stdout  # WAV format
             stderr_text = result.stderr.decode(errors="replace")
             log.warning(
-                "Piper produced no audio (rc=%d, stderr=%s)",
-                result.returncode,
-                stderr_text[:500],
+                "Piper produced no audio (rc=%d, %.3fs, stderr=%s)",
+                result.returncode, elapsed, stderr_text[:500],
             )
             if result.returncode != 0:
                 log.debug("Full Piper stderr: %s", stderr_text)
         except FileNotFoundError:
             log.warning("piper CLI not found, falling back to espeak-ng")
         except subprocess.TimeoutExpired:
-            log.warning("Piper TTS timed out")
+            log.warning("Piper TTS timed out after 60s")
 
         return self._synthesize_espeak_fallback(text)
 

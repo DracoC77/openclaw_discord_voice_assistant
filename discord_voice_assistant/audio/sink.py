@@ -65,9 +65,18 @@ class StreamingSink(discord.sinks.Sink):
         rms = self._compute_rms(data)
 
         if rms > SILENCE_THRESHOLD:
+            if not self._speaking[user]:
+                log.debug(
+                    "Speech START for user %d (rms=%.0f, threshold=%d)",
+                    user, rms, SILENCE_THRESHOLD,
+                )
             self._speaking[user] = True
             self._last_speech[user] = time.monotonic()
             self._buffers[user].extend(data)
+            log.debug(
+                "Audio buffered user=%d rms=%.0f buf=%d bytes",
+                user, rms, len(self._buffers[user]),
+            )
 
             # Cancel any pending silence task (thread-safe via call_soon_threadsafe)
             if user in self._silence_tasks:
@@ -78,6 +87,10 @@ class StreamingSink(discord.sinks.Sink):
 
             # Start silence monitoring if not already running
             if user not in self._silence_tasks:
+                log.debug(
+                    "Silence after speech for user %d (rms=%.0f), starting VAD timer",
+                    user, rms,
+                )
                 self._loop.call_soon_threadsafe(self._start_silence_check, user)
 
     def _start_silence_check(self, user: int) -> None:
@@ -106,6 +119,10 @@ class StreamingSink(discord.sinks.Sink):
             now = time.monotonic()
             last = self._last_speech.get(user, 0)
             if now - last >= VAD_SILENCE_DURATION:
+                log.debug(
+                    "Speech END for user %d (silence=%.2fs), flushing buffer",
+                    user, now - last,
+                )
                 self._speaking[user] = False
                 await self._flush_buffer(user)
         except asyncio.CancelledError:
@@ -116,10 +133,16 @@ class StreamingSink(discord.sinks.Sink):
     async def _flush_buffer(self, user: int) -> None:
         """Process accumulated audio for a user."""
         if user not in self._buffers or not self._buffers[user]:
+            log.debug("Flush called for user %d but buffer is empty", user)
             return
 
         raw = bytes(self._buffers[user])
         self._buffers[user].clear()
+
+        log.debug(
+            "Flushing buffer for user %d: %d bytes raw (%.2fs at 48kHz stereo)",
+            user, len(raw), len(raw) / (DISCORD_SAMPLE_RATE * 2 * 2),
+        )
 
         # Convert to mono 16kHz
         try:
@@ -128,9 +151,19 @@ class StreamingSink(discord.sinks.Sink):
             log.exception("Error downsampling audio for user %d", user)
             return
 
+        audio_duration = len(mono_16k) / (TARGET_SAMPLE_RATE * 2)  # 16-bit = 2 bytes/sample
+
         # Minimum audio length check (~0.5s at 16kHz)
         if len(mono_16k) < TARGET_SAMPLE_RATE:
+            log.debug(
+                "Audio too short for user %d (%.2fs), skipping", user, audio_duration,
+            )
             return
+
+        log.debug(
+            "Sending audio chunk to pipeline: user=%d, %d bytes (%.2fs at 16kHz)",
+            user, len(mono_16k), audio_duration,
+        )
 
         try:
             await self._callback(user, mono_16k, TARGET_SAMPLE_RATE)
