@@ -57,6 +57,16 @@ class WakeWordConfig:
 
 
 @dataclass(frozen=True)
+class ThinkingSoundConfig:
+    tone1_hz: float = float(os.getenv("THINKING_TONE1_HZ", "220"))
+    tone2_hz: float = float(os.getenv("THINKING_TONE2_HZ", "277"))
+    tone_mix: float = float(os.getenv("THINKING_TONE_MIX", "0.6"))
+    pulse_hz: float = float(os.getenv("THINKING_PULSE_HZ", "0.35"))
+    volume: float = float(os.getenv("THINKING_VOLUME", "0.15"))
+    duration: float = float(os.getenv("THINKING_DURATION", "2.0"))
+
+
+@dataclass(frozen=True)
 class VoiceConfig:
     auto_join: bool = _bool(os.getenv("AUTO_JOIN_ENABLED", "true"))
     inactivity_timeout: int = int(os.getenv("INACTIVITY_TIMEOUT", "300"))
@@ -86,6 +96,7 @@ class Config:
     stt: STTConfig = field(default_factory=STTConfig)
     wake_word: WakeWordConfig = field(default_factory=WakeWordConfig)
     voice: VoiceConfig = field(default_factory=VoiceConfig)
+    thinking_sound: ThinkingSoundConfig = field(default_factory=ThinkingSoundConfig)
     voice_id: VoiceIdConfig = field(default_factory=VoiceIdConfig)
     auth: AuthConfig = field(default_factory=AuthConfig)
     log_level: str = os.getenv("LOG_LEVEL", "INFO")

@@ -353,19 +353,27 @@ docker compose up -d
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `DISCORD_BOT_TOKEN` | Yes | - | Discord bot token |
-| `OPENCLAW_URL` | Yes | `http://localhost:18789` | OpenClaw Gateway URL |
+| `DISCORD_BOT_TOKEN` | Yes | — | Discord bot token |
 | `BOT_NAME` | No | `Clippy` | Display name in responses |
-| `OPENCLAW_API_KEY` | Recommended | - | Gateway auth token (matches `OPENCLAW_GATEWAY_TOKEN`) |
-| `OPENCLAW_AGENT_ID` | Recommended | `default` | Voice agent ID (see [voice agent setup](#3-create-a-dedicated-voice-agent-recommended)) |
+| `OPENCLAW_URL` | Yes | `http://localhost:18789` | OpenClaw Gateway URL |
+| `OPENCLAW_API_KEY` | Recommended | — | Gateway auth token (matches `OPENCLAW_GATEWAY_TOKEN`) |
+| `OPENCLAW_AGENT_ID` | Recommended | `voice` | Voice agent ID (see [voice agent setup](#3-create-a-dedicated-voice-agent-recommended)) |
 | `TTS_PROVIDER` | No | `local` | `local` or `elevenlabs` |
-| `ELEVENLABS_API_KEY` | No | - | Required if TTS=elevenlabs |
-| `STT_MODEL_SIZE` | No | `base` | tiny/base/small/medium/large-v3 |
+| `LOCAL_TTS_MODEL` | No | `en_US-hfc_male-medium` | Piper voice model name (auto-downloads) |
+| `ELEVENLABS_API_KEY` | No | — | Required if TTS_PROVIDER=elevenlabs |
+| `ELEVENLABS_VOICE_ID` | No | `21m00Tcm4TlvDq8ikWAM` | ElevenLabs voice ID |
+| `STT_MODEL_SIZE` | No | `base` | tiny/base/small/medium/large-v2/large-v3 |
+| `STT_DEVICE` | No | `auto` | Inference device: cpu/cuda/auto |
+| `STT_COMPUTE_TYPE` | No | `int8` | Quantization: int8/float16/float32 |
 | `WAKE_WORD_ENABLED` | No | `false` | Enable wake word (disabled by default) |
-| `VOICE_ID_ENABLED` | No | `false` | Speaker verification via voice embeddings (disabled by default) |
+| `WAKE_WORD_THRESHOLD` | No | `0.5` | Wake word sensitivity (0.0–1.0) |
+| `WAKE_WORD_MODEL_PATH` | No | — | Custom `.tflite` wake word model |
+| `VOICE_ID_ENABLED` | No | `false` | Speaker verification (disabled by default) |
 | `AUTO_JOIN_ENABLED` | No | `true` | Auto-join voice channels |
-| `INACTIVITY_TIMEOUT` | No | `300` | Seconds before auto-leave |
-| `AUTHORIZED_USER_IDS` | No | - | Comma-separated Discord IDs |
+| `INACTIVITY_TIMEOUT` | No | `300` | Seconds before auto-leave (0 = disable) |
+| `MAX_SESSION_DURATION` | No | `0` | Max session length in seconds (0 = unlimited) |
+| `AUTHORIZED_USER_IDS` | No | — | Comma-separated Discord user IDs |
+| `REQUIRE_WAKE_WORD_FOR_UNAUTHORIZED` | No | `true` | Require wake word from non-authorized users |
 | `LOG_LEVEL` | No | `INFO` | DEBUG/INFO/WARNING/ERROR |
 | `DEBUG_VOICE_PIPELINE` | No | `false` | Verbose voice pipeline debug logging |
 
