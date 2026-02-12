@@ -51,7 +51,7 @@ class STTConfig:
 
 @dataclass(frozen=True)
 class WakeWordConfig:
-    enabled: bool = _bool(os.getenv("WAKE_WORD_ENABLED", "true"))
+    enabled: bool = _bool(os.getenv("WAKE_WORD_ENABLED", "false"))
     model_path: str = os.getenv("WAKE_WORD_MODEL_PATH", "")
     threshold: float = float(os.getenv("WAKE_WORD_THRESHOLD", "0.5"))
 
@@ -61,6 +61,11 @@ class VoiceConfig:
     auto_join: bool = _bool(os.getenv("AUTO_JOIN_ENABLED", "true"))
     inactivity_timeout: int = int(os.getenv("INACTIVITY_TIMEOUT", "300"))
     max_session_duration: int = int(os.getenv("MAX_SESSION_DURATION", "0"))
+
+
+@dataclass(frozen=True)
+class VoiceIdConfig:
+    enabled: bool = _bool(os.getenv("VOICE_ID_ENABLED", "false"))
 
 
 @dataclass(frozen=True)
@@ -81,8 +86,10 @@ class Config:
     stt: STTConfig = field(default_factory=STTConfig)
     wake_word: WakeWordConfig = field(default_factory=WakeWordConfig)
     voice: VoiceConfig = field(default_factory=VoiceConfig)
+    voice_id: VoiceIdConfig = field(default_factory=VoiceIdConfig)
     auth: AuthConfig = field(default_factory=AuthConfig)
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
+    debug_voice: bool = _bool(os.getenv("DEBUG_VOICE_PIPELINE", "false"))
     data_dir: Path = Path(os.getenv("DATA_DIR", "data"))
     models_dir: Path = Path(os.getenv("MODELS_DIR", "models"))
 

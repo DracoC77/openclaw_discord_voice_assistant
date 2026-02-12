@@ -111,11 +111,21 @@
   <Config
     Name="Wake Word Enabled"
     Target="WAKE_WORD_ENABLED"
-    Default="true"
+    Default="false"
     Mode=""
-    Description="Enable wake word detection (true/false)"
+    Description="Enable wake word detection (true/false). Disabled by default — enable once the base voice loop is stable."
     Type="Variable"
     Display="always"
+    Required="false"
+    Mask="false"/>
+  <Config
+    Name="Voice Identification"
+    Target="VOICE_ID_ENABLED"
+    Default="false"
+    Mode=""
+    Description="Enable speaker verification via voice embeddings (true/false). Disabled by default — enable once the base voice loop is stable."
+    Type="Variable"
+    Display="advanced"
     Required="false"
     Mask="false"/>
   <Config
@@ -154,6 +164,16 @@
     Default="INFO"
     Mode=""
     Description="Logging level: DEBUG, INFO, WARNING, ERROR"
+    Type="Variable"
+    Display="advanced"
+    Required="false"
+    Mask="false"/>
+  <Config
+    Name="Debug Voice Pipeline"
+    Target="DEBUG_VOICE_PIPELINE"
+    Default="false"
+    Mode=""
+    Description="Enable verbose debug logging for the voice pipeline (timing, audio stats, RMS values). Useful for diagnosing why the bot isn't responding."
     Type="Variable"
     Display="advanced"
     Required="false"

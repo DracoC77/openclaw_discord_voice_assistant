@@ -288,10 +288,12 @@ These go in `/mnt/user/appdata/discord-voice-assistant/.env`:
 | `BOT_NAME` | `Clippy` | Name shown in bot responses |
 | `STT_MODEL_SIZE` | `base` | Speech-to-text model: `tiny`, `base`, `small`, `medium`, `large-v3` |
 | `TTS_PROVIDER` | `local` | `local` (free, runs on CPU) or `elevenlabs` (paid, better quality) |
-| `WAKE_WORD_ENABLED` | `true` | Require wake word in multi-user channels |
+| `WAKE_WORD_ENABLED` | `false` | Require wake word in multi-user channels (disabled by default) |
+| `VOICE_ID_ENABLED` | `false` | Speaker verification via voice embeddings (disabled by default) |
 | `AUTO_JOIN_ENABLED` | `true` | Auto-join when you enter a voice channel |
 | `INACTIVITY_TIMEOUT` | `300` | Seconds of silence before leaving (0 = never) |
 | `AUTHORIZED_USER_IDS` | *(empty)* | Comma-separated Discord user IDs (empty = everyone) |
+| `DEBUG_VOICE_PIPELINE` | `false` | Verbose debug logging for voice pipeline (timing, audio stats) |
 
 ### How to Get a Discord User ID
 
