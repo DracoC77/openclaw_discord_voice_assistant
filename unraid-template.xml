@@ -39,6 +39,16 @@
     Required="true"
     Mask="true"/>
   <Config
+    Name="Bot Name"
+    Target="BOT_NAME"
+    Default="Clippy"
+    Mode=""
+    Description="Display name used in bot responses"
+    Type="Variable"
+    Display="always"
+    Required="false"
+    Mask="false"/>
+  <Config
     Name="OpenClaw URL"
     Target="OPENCLAW_URL"
     Default="http://localhost:18789"
@@ -99,6 +109,16 @@
     Required="false"
     Mask="true"/>
   <Config
+    Name="ElevenLabs Voice ID"
+    Target="ELEVENLABS_VOICE_ID"
+    Default="21m00Tcm4TlvDq8ikWAM"
+    Mode=""
+    Description="ElevenLabs voice ID (only used if TTS_PROVIDER=elevenlabs)"
+    Type="Variable"
+    Display="advanced"
+    Required="false"
+    Mask="false"/>
+  <Config
     Name="STT Model Size"
     Target="STT_MODEL_SIZE"
     Default="base"
@@ -109,6 +129,26 @@
     Required="false"
     Mask="false"/>
   <Config
+    Name="STT Device"
+    Target="STT_DEVICE"
+    Default="auto"
+    Mode=""
+    Description="Whisper inference device: cpu, cuda, auto (auto-detects GPU)"
+    Type="Variable"
+    Display="advanced"
+    Required="false"
+    Mask="false"/>
+  <Config
+    Name="STT Compute Type"
+    Target="STT_COMPUTE_TYPE"
+    Default="int8"
+    Mode=""
+    Description="Whisper quantization: int8, float16, float32 (int8 uses least RAM)"
+    Type="Variable"
+    Display="advanced"
+    Required="false"
+    Mask="false"/>
+  <Config
     Name="Wake Word Enabled"
     Target="WAKE_WORD_ENABLED"
     Default="false"
@@ -116,6 +156,26 @@
     Description="Enable wake word detection (true/false). Disabled by default — enable once the base voice loop is stable."
     Type="Variable"
     Display="always"
+    Required="false"
+    Mask="false"/>
+  <Config
+    Name="Wake Word Threshold"
+    Target="WAKE_WORD_THRESHOLD"
+    Default="0.5"
+    Mode=""
+    Description="Wake word detection sensitivity (0.0-1.0, higher = stricter, fewer false positives)"
+    Type="Variable"
+    Display="advanced"
+    Required="false"
+    Mask="false"/>
+  <Config
+    Name="Wake Word Model Path"
+    Target="WAKE_WORD_MODEL_PATH"
+    Default=""
+    Mode=""
+    Description="Path to a custom .tflite wake word model (leave empty for built-in defaults)"
+    Type="Variable"
+    Display="advanced"
     Required="false"
     Mask="false"/>
   <Config
@@ -149,6 +209,16 @@
     Required="false"
     Mask="false"/>
   <Config
+    Name="Max Session Duration"
+    Target="MAX_SESSION_DURATION"
+    Default="0"
+    Mode=""
+    Description="Maximum session length in seconds (0 = unlimited)"
+    Type="Variable"
+    Display="advanced"
+    Required="false"
+    Mask="false"/>
+  <Config
     Name="Authorized User IDs"
     Target="AUTHORIZED_USER_IDS"
     Default=""
@@ -156,6 +226,16 @@
     Description="Comma-separated Discord user IDs (leave empty to allow all)"
     Type="Variable"
     Display="always"
+    Required="false"
+    Mask="false"/>
+  <Config
+    Name="Require Wake Word for Unauthorized"
+    Target="REQUIRE_WAKE_WORD_FOR_UNAUTHORIZED"
+    Default="true"
+    Mode=""
+    Description="Require wake word from non-authorized users (true/false). Only relevant when wake word is enabled."
+    Type="Variable"
+    Display="advanced"
     Required="false"
     Mask="false"/>
   <Config

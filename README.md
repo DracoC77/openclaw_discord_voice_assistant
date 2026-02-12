@@ -320,23 +320,65 @@ Quick prompt for your agent:
 
 ## Configuration Reference
 
-See [`.env.example`](.env.example) for all available options. Key settings:
+See [`.env.example`](.env.example) for all available options with comments.
+
+### Core Settings
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `DISCORD_BOT_TOKEN` | Yes | — | Discord bot token |
-| `OPENCLAW_URL` | Yes | `http://localhost:18789` | OpenClaw Gateway URL (use host LAN IP in Docker) |
-| `OPENCLAW_API_KEY` | Yes* | — | Gateway auth token (required when `bind` != `loopback`) |
-| `OPENCLAW_AGENT_ID` | No | `default` | OpenClaw agent to route to (e.g. `main`) |
 | `BOT_NAME` | No | `Clippy` | Display name in bot responses |
-| `AUTHORIZED_USER_IDS` | No | — | Comma-separated Discord user IDs |
-| `STT_MODEL_SIZE` | No | `base` | tiny/base/small/medium/large-v3 |
-| `TTS_PROVIDER` | No | `local` | `local` or `elevenlabs` |
+| `OPENCLAW_URL` | Yes | `http://localhost:18789` | OpenClaw Gateway URL (use container name in Docker) |
+| `OPENCLAW_API_KEY` | Yes* | — | Gateway auth token (required when `bind` != `loopback`) |
+| `OPENCLAW_AGENT_ID` | No | `voice` | OpenClaw agent to route to (`voice` recommended, `default` for fallback) |
+
+### Speech-to-Text (Whisper)
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `STT_MODEL_SIZE` | No | `base` | Whisper model: `tiny`, `base`, `small`, `medium`, `large-v2`, `large-v3` |
+| `STT_DEVICE` | No | `auto` | Inference device: `cpu`, `cuda`, `auto` |
+| `STT_COMPUTE_TYPE` | No | `int8` | Quantization: `int8`, `float16`, `float32` |
+
+### Text-to-Speech
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `TTS_PROVIDER` | No | `local` | `local` (Piper/espeak) or `elevenlabs` |
+| `LOCAL_TTS_MODEL` | No | `en_US-hfc_male-medium` | Piper model name (auto-downloads from HuggingFace) |
+| `ELEVENLABS_API_KEY` | If elevenlabs | — | ElevenLabs API key |
+| `ELEVENLABS_VOICE_ID` | No | `21m00Tcm4TlvDq8ikWAM` | ElevenLabs voice ID |
+
+### Voice Channel Behavior
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `AUTO_JOIN_ENABLED` | No | `true` | Auto-join when authorized users enter a voice channel |
+| `INACTIVITY_TIMEOUT` | No | `300` | Seconds of inactivity before leaving (0 = disable) |
+| `MAX_SESSION_DURATION` | No | `0` | Max session length in seconds (0 = unlimited) |
+
+### Wake Word & Speaker Verification
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
 | `WAKE_WORD_ENABLED` | No | `false` | Enable wake word detection (disabled by default) |
+| `WAKE_WORD_THRESHOLD` | No | `0.5` | Detection sensitivity (0.0–1.0, higher = stricter) |
+| `WAKE_WORD_MODEL_PATH` | No | — | Path to custom `.tflite` wake word model |
 | `VOICE_ID_ENABLED` | No | `false` | Speaker verification via voice embeddings (disabled by default) |
-| `AUTO_JOIN_ENABLED` | No | `true` | Auto-join voice channels |
-| `INACTIVITY_TIMEOUT` | No | `300` | Seconds before auto-leave |
-| `DEBUG_VOICE_PIPELINE` | No | `false` | Verbose voice pipeline debug logging (timing, audio stats) |
+
+### Authorization
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `AUTHORIZED_USER_IDS` | No | — | Comma-separated Discord user IDs (empty = allow all) |
+| `REQUIRE_WAKE_WORD_FOR_UNAUTHORIZED` | No | `true` | Require wake word from non-authorized users |
+
+### Logging & Debugging
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `LOG_LEVEL` | No | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+| `DEBUG_VOICE_PIPELINE` | No | `false` | Verbose voice pipeline logging (timing, audio stats, RMS) |
 
 ## Project Structure
 

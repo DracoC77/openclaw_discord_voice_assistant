@@ -282,17 +282,26 @@ These go in `/mnt/user/appdata/discord-voice-assistant/.env`:
 | Setting | Default | What It Does |
 |---------|---------|-------------|
 | `DISCORD_BOT_TOKEN` | *(required)* | Your Discord bot token |
+| `BOT_NAME` | `Clippy` | Name shown in bot responses |
 | `OPENCLAW_URL` | `http://localhost:18789` | OpenClaw gateway address |
 | `OPENCLAW_API_KEY` | *(empty)* | Gateway auth token |
-| `OPENCLAW_AGENT_ID` | `default` | Voice agent ID ([see above](#create-a-voice-agent-recommended)) |
-| `BOT_NAME` | `Clippy` | Name shown in bot responses |
+| `OPENCLAW_AGENT_ID` | `voice` | Voice agent ID ([see above](#create-a-voice-agent-recommended)) |
 | `STT_MODEL_SIZE` | `base` | Speech-to-text model: `tiny`, `base`, `small`, `medium`, `large-v3` |
+| `STT_DEVICE` | `auto` | Whisper device: `cpu`, `cuda`, `auto` |
+| `STT_COMPUTE_TYPE` | `int8` | Whisper quantization: `int8`, `float16`, `float32` |
 | `TTS_PROVIDER` | `local` | `local` (free, runs on CPU) or `elevenlabs` (paid, better quality) |
-| `WAKE_WORD_ENABLED` | `false` | Require wake word in multi-user channels (disabled by default) |
+| `LOCAL_TTS_MODEL` | `en_US-hfc_male-medium` | Piper voice model (auto-downloads from HuggingFace) |
+| `ELEVENLABS_API_KEY` | *(empty)* | ElevenLabs API key (required if TTS_PROVIDER=elevenlabs) |
+| `ELEVENLABS_VOICE_ID` | `21m00Tcm4TlvDq8ikWAM` | ElevenLabs voice ID |
+| `WAKE_WORD_ENABLED` | `false` | Enable wake word detection (disabled by default) |
+| `WAKE_WORD_THRESHOLD` | `0.5` | Wake word sensitivity (0.0–1.0, higher = stricter) |
 | `VOICE_ID_ENABLED` | `false` | Speaker verification via voice embeddings (disabled by default) |
 | `AUTO_JOIN_ENABLED` | `true` | Auto-join when you enter a voice channel |
 | `INACTIVITY_TIMEOUT` | `300` | Seconds of silence before leaving (0 = never) |
+| `MAX_SESSION_DURATION` | `0` | Max session length in seconds (0 = unlimited) |
 | `AUTHORIZED_USER_IDS` | *(empty)* | Comma-separated Discord user IDs (empty = everyone) |
+| `REQUIRE_WAKE_WORD_FOR_UNAUTHORIZED` | `true` | Require wake word from non-authorized users |
+| `LOG_LEVEL` | `INFO` | Logging level: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `DEBUG_VOICE_PIPELINE` | `false` | Verbose debug logging for voice pipeline (timing, audio stats) |
 
 ### How to Get a Discord User ID
