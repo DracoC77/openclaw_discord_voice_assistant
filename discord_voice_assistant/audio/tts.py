@@ -200,6 +200,25 @@ class TextToSpeech:
         self._elevenlabs_client = None
         self._resolved_model: str | None = None
 
+    async def warm_up(self) -> None:
+        """Pre-resolve the TTS model so the first synthesis isn't delayed."""
+        if self.config.provider == "elevenlabs":
+            try:
+                from elevenlabs import AsyncElevenLabs
+                self._elevenlabs_client = AsyncElevenLabs(
+                    api_key=self.config.elevenlabs_api_key
+                )
+                log.debug("ElevenLabs client pre-initialized")
+            except ImportError:
+                log.warning("elevenlabs package not installed")
+        else:
+            loop = asyncio.get_running_loop()
+            resolved = await loop.run_in_executor(
+                None, _resolve_piper_model, self.config.local_model
+            )
+            self._resolved_model = resolved
+            log.debug("Piper model pre-resolved: %s", resolved)
+
     async def synthesize(self, text: str) -> bytes | None:
         """Convert text to WAV audio bytes.
 

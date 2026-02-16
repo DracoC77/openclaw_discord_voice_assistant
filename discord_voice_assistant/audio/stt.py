@@ -51,6 +51,11 @@ class SpeechToText:
             log.info("Whisper model loaded successfully")
         return self._model
 
+    async def warm_up(self) -> None:
+        """Pre-load the Whisper model so the first transcription isn't delayed."""
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._get_model)
+
     async def transcribe(self, audio_data: bytes, sample_rate: int = 16000) -> str:
         """Transcribe audio bytes (16-bit PCM, mono) to text.
 

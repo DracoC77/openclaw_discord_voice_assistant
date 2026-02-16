@@ -60,6 +60,10 @@ class WakeWordDetector:
             log.exception("Failed to load wake word model")
             return False
 
+    def warm_up(self) -> None:
+        """Pre-load the wake word model so the first detection isn't delayed."""
+        self._ensure_model()
+
     def detect(self, audio_data: bytes, sample_rate: int = 16000) -> bool:
         """Check if the wake word is present in an audio chunk.
 
