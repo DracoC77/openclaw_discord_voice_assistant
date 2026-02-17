@@ -89,6 +89,21 @@ class VoiceSession:
         )
         await self._openclaw.reset_session(self._session_id)
 
+        # Pre-warm models and resources concurrently so the first response is fast
+        warmup_start = time.monotonic()
+        warmup_tasks = [
+            self._stt.warm_up(),
+            self._tts.warm_up(),
+            self._ensure_thinking_sound(),
+        ]
+        if self._wake_word:
+            loop = asyncio.get_running_loop()
+            warmup_tasks.append(loop.run_in_executor(None, self._wake_word.warm_up))
+        if self._voice_id:
+            warmup_tasks.append(self._voice_id.warm_up())
+        await asyncio.gather(*warmup_tasks, return_exceptions=True)
+        log.info("Pipeline warm-up completed in %.3fs", time.monotonic() - warmup_start)
+
         # Start recording with our streaming sink
         self._sink = StreamingSink(self._on_audio_chunk, asyncio.get_running_loop())
         self.voice_client.start_recording(self._sink, self._on_recording_stop)
@@ -335,7 +350,7 @@ class VoiceSession:
                 )
                 return
 
-            log.debug("OpenClaw responded in %.3fs: %r", llm_elapsed, response[:120])
+            log.debug("OpenClaw responded in %.3fs: %r", llm_elapsed, response[:500])
             log.info("[Assistant] %s", response)
 
             tts_start = time.monotonic()

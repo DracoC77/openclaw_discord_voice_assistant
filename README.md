@@ -120,17 +120,49 @@ python -m discord_voice_assistant.main
 ### Auto-Join
 When `AUTO_JOIN_ENABLED=true`, the bot automatically joins a voice channel when an authorized user connects. It follows the authorized user if they switch channels.
 
+### Per-User Audio Streams
+
+Discord provides **separate audio streams for each user** in a voice channel. The bot receives each person's voice as independent audio packets tagged with their Discord user ID. This means:
+
+- Each user's speech is buffered and processed independently
+- The bot always knows *who* is speaking without any ambiguity
+- Voice activity detection (VAD) runs per-user, so overlapping speech is handled correctly
+- Wake word detection and transcription happen on each user's isolated audio stream
+
+You do **not** need wake words just to distinguish speakers — Discord handles that at the protocol level. Wake words are useful for a different reason: preventing the bot from responding to conversations not directed at it (see below).
+
 ### Wake Word
-In multi-user channels (more than just you and the bot), the wake word must be spoken before a command. This prevents the bot from responding to conversations not directed at it. Set `BOT_NAME` to configure what name appears in help text.
 
-For unauthorized users, the wake word is always required (configurable via `REQUIRE_WAKE_WORD_FOR_UNAUTHORIZED`).
+When `WAKE_WORD_ENABLED=true`, the bot requires a wake word before processing speech. This is useful in two scenarios:
 
-#### Custom Wake Word
-To train a custom wake word model:
+1. **Multi-user channels** (more than just you and the bot) — prevents the bot from responding to side conversations between other people. Even though Discord provides per-user audio, the bot would otherwise try to respond to *everyone* who speaks.
+2. **Unauthorized users** — when `REQUIRE_WAKE_WORD_FOR_UNAUTHORIZED=true` (the default), users not in `AUTHORIZED_USER_IDS` must say the wake word before the bot will respond to them.
+
+For authorized users in a **1-on-1** channel (just you and the bot), no wake word is needed — the bot responds to everything you say.
+
+Without a custom model, openWakeWord ships with built-in wake words like "hey jarvis". To use a custom wake word:
+
 1. Use [openWakeWord's training notebook](https://github.com/dscripka/openWakeWord#training-new-models) on Google Colab
-2. Train with your desired wake word
-3. Place the `.tflite` model file in the `models/` directory
+2. Train with your desired wake phrase (collecting ~50+ positive samples works best)
+3. Export the `.tflite` model file and place it in the `models/` directory
 4. Set `WAKE_WORD_MODEL_PATH=models/your_model.tflite`
+5. Adjust `WAKE_WORD_THRESHOLD` (0.0–1.0) — lower values are more sensitive, higher values reduce false positives
+
+### Speech-to-Text
+
+Transcription uses [Faster Whisper](https://github.com/SYSTRAN/faster-whisper), a CTranslate2-based re-implementation of OpenAI's Whisper. It runs entirely locally with no API costs.
+
+| Model | Memory | Speed | Accuracy |
+|-------|--------|-------|----------|
+| `tiny` | ~150MB | Fastest | Basic |
+| `base` | ~300MB | Fast | Good (default) |
+| `small` | ~600MB | Moderate | Better |
+| `medium` | ~1.5GB | Slow | High |
+| `large-v3` | ~3GB | Slowest | Best |
+
+Set `STT_DEVICE=cuda` for GPU acceleration (requires NVIDIA GPU + CUDA). The default `auto` detects CUDA availability and falls back to CPU. Quantization via `STT_COMPUTE_TYPE` (`int8`, `float16`, `float32`) trades accuracy for speed — `int8` (default) is fastest on CPU.
+
+The bot includes built-in VAD (voice activity detection) that waits for 500ms of silence before sending audio to Whisper, and discards clips shorter than 1 second.
 
 ### Inactivity Timeout
 The bot leaves the voice channel after `INACTIVITY_TIMEOUT` seconds of no speech activity. Default is 300 seconds (5 minutes). Set to `0` to disable.
@@ -138,7 +170,7 @@ The bot leaves the voice channel after `INACTIVITY_TIMEOUT` seconds of no speech
 When all human users leave the channel, the bot leaves immediately. When only unauthorized users remain, it starts a 30-second leave timer.
 
 ### Speaker Identification
-Use `/enroll` to record a 10-second voice sample. The bot uses this to verify speaker identity via voice biometric embeddings, adding an extra verification layer on top of Discord's per-user audio streams.
+Use `/enroll` to record a 10-second voice sample. The bot uses this to verify speaker identity via voice biometric embeddings ([Resemblyzer](https://github.com/resemble-ai/Resemblyzer)), adding an extra verification layer on top of Discord's per-user audio streams. This is optional and disabled by default (`VOICE_ID_ENABLED=false`).
 
 ## OpenClaw-Side Setup
 

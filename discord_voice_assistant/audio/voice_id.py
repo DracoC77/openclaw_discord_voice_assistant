@@ -64,6 +64,11 @@ class VoiceIdentifier:
             except (ValueError, Exception) as e:
                 log.warning("Failed to load voice profile %s: %s", profile_path, e)
 
+    async def warm_up(self) -> None:
+        """Pre-load the voice encoder so the first verification isn't delayed."""
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._ensure_encoder)
+
     async def enroll(self, user_id: int, audio_data: bytes, sample_rate: int = 16000) -> bool:
         """Enroll a user's voice profile from an audio sample.
 

@@ -97,7 +97,7 @@ class OpenClawClient:
                     text_resp = await resp.text()
                     log.warning(
                         "Session reset returned %d: %s",
-                        resp.status, text_resp[:200],
+                        resp.status, text_resp[:2000],
                     )
         except aiohttp.ClientError as e:
             log.error("Failed to reset session %s: %s", session_id, e)
@@ -173,7 +173,7 @@ class OpenClawClient:
                         result = choices[0].get("message", {}).get("content", "")
                         log.debug(
                             "OpenClaw response content (%d chars): %r",
-                            len(result), result[:120],
+                            len(result), result[:500],
                         )
                         return result
                     log.warning(
@@ -199,7 +199,7 @@ class OpenClawClient:
                     text_resp = await resp.text()
                     log.warning(
                         "OpenClaw returned %d (%.3fs): %s",
-                        resp.status, elapsed, text_resp[:200],
+                        resp.status, elapsed, text_resp[:2000],
                     )
                     return ""
         except aiohttp.ClientError as e:
@@ -274,7 +274,7 @@ class OpenClawClient:
                     log.warning(
                         "OpenClaw stream returned %d: %s",
                         resp.status,
-                        text_resp[:200],
+                        text_resp[:2000],
                     )
         except aiohttp.ClientError as e:
             log.error("Failed to stream from OpenClaw: %s", e)
