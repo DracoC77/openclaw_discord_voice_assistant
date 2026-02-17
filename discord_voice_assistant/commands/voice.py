@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import TYPE_CHECKING
 
@@ -79,72 +78,6 @@ class VoiceCommands(commands.Cog):
         await vm.join_channel(channel)
 
     @discord.slash_command(
-        name="enroll",
-        description="Enroll your voice profile for speaker identification",
-    )
-    async def enroll(self, ctx: discord.ApplicationContext) -> None:
-        """Record a short voice sample for voice identification."""
-        vm = self.bot.voice_manager
-        session = vm.get_session(ctx.guild.id)
-
-        if not session or not session.is_active:
-            await ctx.respond(
-                "The voice assistant needs to be in a voice channel first. Use `/join`.",
-                ephemeral=True,
-            )
-            return
-
-        if not ctx.author.voice or ctx.author.voice.channel != session.channel:
-            await ctx.respond(
-                "You need to be in the same voice channel as the bot.",
-                ephemeral=True,
-            )
-            return
-
-        await ctx.respond(
-            "Starting voice enrollment. Please speak for about 10 seconds...\n"
-            "Say something like: *'Hello, this is my voice profile enrollment. "
-            "I want you to recognize me when I speak in voice channels.'*",
-            ephemeral=True,
-        )
-
-        # Record for 10 seconds
-        sink = discord.sinks.WaveSink()
-
-        async def _noop(s):
-            pass
-
-        session.voice_client.start_recording(sink, _noop)
-        await asyncio.sleep(10)
-        session.voice_client.stop_recording()
-
-        # Find the enrolling user's audio
-        user_audio = sink.audio_data.get(ctx.author.id)
-        if not user_audio:
-            await ctx.edit(
-                content="No audio detected from you. Make sure you're unmuted and try again."
-            )
-            return
-
-        # Enroll the voice profile
-        audio_bytes = user_audio.file.read()
-        if session._voice_id:
-            success = await session._voice_id.enroll(
-                ctx.author.id, audio_bytes, 48000
-            )
-            if success:
-                await ctx.edit(
-                    content="Voice profile enrolled successfully! "
-                    "The voice assistant will now be able to identify your voice."
-                )
-            else:
-                await ctx.edit(
-                    content="Enrollment failed. The audio may have been too short or unclear."
-                )
-        else:
-            await ctx.edit(content="Voice identification is not available.")
-
-    @discord.slash_command(
         name="voice-status",
         description="Show details about the current voice session",
     )
@@ -184,19 +117,6 @@ class VoiceCommands(commands.Cog):
             value=", ".join(m.display_name for m in members) or "None",
             inline=False,
         )
-
-        voice_id = session._voice_id
-        if voice_id:
-            enrolled = [
-                m.display_name
-                for m in members
-                if voice_id.has_profile(m.id)
-            ]
-            embed.add_field(
-                name="Enrolled Voice Profiles",
-                value=", ".join(enrolled) if enrolled else "None",
-                inline=False,
-            )
 
         await ctx.respond(embed=embed, ephemeral=True)
 

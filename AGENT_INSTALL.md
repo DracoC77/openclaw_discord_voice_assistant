@@ -368,7 +368,6 @@ docker compose up -d
 | `WAKE_WORD_ENABLED` | No | `false` | Enable wake word (disabled by default) |
 | `WAKE_WORD_THRESHOLD` | No | `0.5` | Wake word sensitivity (0.0–1.0) |
 | `WAKE_WORD_MODEL_PATH` | No | — | Custom `.tflite` wake word model |
-| `VOICE_ID_ENABLED` | No | `false` | Speaker verification (disabled by default) |
 | `AUTO_JOIN_ENABLED` | No | `true` | Auto-join voice channels |
 | `INACTIVITY_TIMEOUT` | No | `300` | Seconds before auto-leave (0 = disable) |
 | `MAX_SESSION_DURATION` | No | `0` | Max session length in seconds (0 = unlimited) |
@@ -417,7 +416,6 @@ services:
       - TTS_PROVIDER=${TTS_PROVIDER:-local}
       - INACTIVITY_TIMEOUT=${INACTIVITY_TIMEOUT:-300}
       - WAKE_WORD_ENABLED=${WAKE_WORD_ENABLED:-false}
-      - VOICE_ID_ENABLED=${VOICE_ID_ENABLED:-false}
       - DEBUG_VOICE_PIPELINE=${DEBUG_VOICE_PIPELINE:-false}
     volumes:
       - dva-data:/app/data

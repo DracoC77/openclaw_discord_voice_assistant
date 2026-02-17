@@ -142,7 +142,6 @@ class GeneralCommands(commands.Cog):
                 f"`/join` - Summon {name} to your voice channel\n"
                 f"`/leave` - Make {name} leave the voice channel\n"
                 "`/rejoin` - Rejoin after inactivity disconnect\n"
-                "`/enroll` - Enroll your voice profile for identification\n"
                 "`/voice-status` - Show voice session details\n"
                 "`/timeout <seconds>` - Set inactivity timeout"
             ),

@@ -179,16 +179,6 @@
     Required="false"
     Mask="false"/>
   <Config
-    Name="Voice Identification"
-    Target="VOICE_ID_ENABLED"
-    Default="false"
-    Mode=""
-    Description="Enable speaker verification via voice embeddings (true/false). Disabled by default — enable once the base voice loop is stable."
-    Type="Variable"
-    Display="advanced"
-    Required="false"
-    Mask="false"/>
-  <Config
     Name="Auto-Join Enabled"
     Target="AUTO_JOIN_ENABLED"
     Default="true"

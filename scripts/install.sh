@@ -113,7 +113,7 @@ else
 fi
 
 # --- Step 4: Create data directories ---
-mkdir -p "$INSTALL_DIR/data/voice_profiles" "$INSTALL_DIR/models" "$INSTALL_DIR/logs"
+mkdir -p "$INSTALL_DIR/data" "$INSTALL_DIR/models" "$INSTALL_DIR/logs"
 
 # --- Step 5: Build and start ---
 info "Building Docker image..."

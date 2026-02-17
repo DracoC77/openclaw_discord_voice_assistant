@@ -14,7 +14,7 @@ services:
       - DATA_DIR=/app/data
       - MODELS_DIR=/app/models
     volumes:
-      # Persistent data (voice profiles, etc.)
+      # Persistent data
       - ./data:/app/data
       # Model cache (Whisper models, wake word models, TTS models)
       - ./models:/app/models

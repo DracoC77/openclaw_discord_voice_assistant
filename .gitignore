@@ -38,9 +38,6 @@ logs/
 # Docker
 docker-compose.override.yml
 
-# Voice profiles (may contain user audio data)
-data/voice_profiles/*.npy
-
 # OS
 .DS_Store
 Thumbs.db
