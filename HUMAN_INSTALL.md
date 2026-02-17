@@ -295,7 +295,6 @@ These go in `/mnt/user/appdata/discord-voice-assistant/.env`:
 | `ELEVENLABS_VOICE_ID` | `21m00Tcm4TlvDq8ikWAM` | ElevenLabs voice ID |
 | `WAKE_WORD_ENABLED` | `false` | Enable wake word detection (disabled by default) |
 | `WAKE_WORD_THRESHOLD` | `0.5` | Wake word sensitivity (0.0–1.0, higher = stricter) |
-| `VOICE_ID_ENABLED` | `false` | Speaker verification via voice embeddings (disabled by default) |
 | `AUTO_JOIN_ENABLED` | `true` | Auto-join when you enter a voice channel |
 | `INACTIVITY_TIMEOUT` | `300` | Seconds of silence before leaving (0 = never) |
 | `MAX_SESSION_DURATION` | `0` | Max session length in seconds (0 = unlimited) |
@@ -326,9 +325,8 @@ The default configuration runs entirely on CPU with `int8` quantization:
 | **Whisper medium** | ~1.5 GB | High | Diminishing returns for voice commands |
 | **openWakeWord** | ~50 MB | Very low | Always running, minimal overhead |
 | **Piper TTS** | ~100 MB | Low | Fast local speech synthesis |
-| **Resemblyzer** | ~100 MB | Low per-check | Only runs during voice verification |
 
-**Total RAM for default config (base model):** ~800 MB active, 1-2 GB recommended
+**Total RAM for default config (base model):** ~700 MB active, 1-2 GB recommended
 
 ### Minimum System Requirements
 

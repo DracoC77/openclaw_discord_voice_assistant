@@ -1,1 +1,1 @@
-"""Audio processing pipeline: STT, TTS, wake word, and voice identification."""
+"""Audio processing pipeline: STT, TTS, and wake word detection."""

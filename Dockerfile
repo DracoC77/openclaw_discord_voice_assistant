@@ -56,7 +56,7 @@ RUN mkdir -p /opt/piper && \
 RUN useradd -m -s /bin/bash appuser
 
 # Create data directories and set ownership
-RUN mkdir -p /app/data/voice_profiles /app/models /app/logs \
+RUN mkdir -p /app/data /app/models /app/logs \
     && chown -R appuser:appuser /app
 
 # Entrypoint fixes volume permissions then drops to appuser

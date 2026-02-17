@@ -74,11 +74,6 @@ class VoiceConfig:
 
 
 @dataclass(frozen=True)
-class VoiceIdConfig:
-    enabled: bool = _bool(os.getenv("VOICE_ID_ENABLED", "false"))
-
-
-@dataclass(frozen=True)
 class AuthConfig:
     authorized_user_ids: list[int] = field(
         default_factory=lambda: _int_list(os.getenv("AUTHORIZED_USER_IDS", ""))
@@ -97,7 +92,6 @@ class Config:
     wake_word: WakeWordConfig = field(default_factory=WakeWordConfig)
     voice: VoiceConfig = field(default_factory=VoiceConfig)
     thinking_sound: ThinkingSoundConfig = field(default_factory=ThinkingSoundConfig)
-    voice_id: VoiceIdConfig = field(default_factory=VoiceIdConfig)
     auth: AuthConfig = field(default_factory=AuthConfig)
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
     debug_voice: bool = _bool(os.getenv("DEBUG_VOICE_PIPELINE", "false"))

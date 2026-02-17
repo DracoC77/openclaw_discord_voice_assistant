@@ -16,7 +16,6 @@ from discord_voice_assistant.audio.sink import StreamingSink
 from discord_voice_assistant.audio.stt import SpeechToText
 from discord_voice_assistant.audio.tts import TextToSpeech, generate_thinking_sound
 from discord_voice_assistant.audio.wake_word import WakeWordDetector
-from discord_voice_assistant.audio.voice_id import VoiceIdentifier
 from discord_voice_assistant.integrations.openclaw import OpenClawClient
 
 if TYPE_CHECKING:
@@ -43,7 +42,6 @@ class VoiceSession:
         self._stt: SpeechToText | None = None
         self._tts: TextToSpeech | None = None
         self._wake_word: WakeWordDetector | None = None
-        self._voice_id: VoiceIdentifier | None = None
         self._openclaw: OpenClawClient | None = None
         self._sink: StreamingSink | None = None
         self._processing_lock = asyncio.Lock()
@@ -75,11 +73,6 @@ class VoiceSession:
             log.info("Wake word detection ENABLED")
         else:
             log.info("Wake word detection DISABLED")
-        if self.config.voice_id.enabled:
-            self._voice_id = VoiceIdentifier(self.config.data_dir / "voice_profiles")
-            log.info("Voice identification ENABLED")
-        else:
-            log.info("Voice identification DISABLED")
         self._openclaw = OpenClawClient(self.config.openclaw)
 
         # Create a stable OpenClaw session (keyed by guild + channel)
@@ -99,10 +92,15 @@ class VoiceSession:
         if self._wake_word:
             loop = asyncio.get_running_loop()
             warmup_tasks.append(loop.run_in_executor(None, self._wake_word.warm_up))
-        if self._voice_id:
-            warmup_tasks.append(self._voice_id.warm_up())
         await asyncio.gather(*warmup_tasks, return_exceptions=True)
         log.info("Pipeline warm-up completed in %.3fs", time.monotonic() - warmup_start)
+
+        # Prime the voice client's audio output by playing a short silence.
+        # Discord's voice client lazily initializes its opus encoder and
+        # audio-sending machinery on the first play() call.  Without this,
+        # the first real audio (thinking sound or TTS) can be delayed or
+        # silently dropped while the encoder spins up.
+        await self._prime_audio()
 
         # Start recording with our streaming sink
         self._sink = StreamingSink(self._on_audio_chunk, asyncio.get_running_loop())
@@ -157,6 +155,33 @@ class VoiceSession:
             await self.voice_client.move_to(channel)
             self.channel = channel
             log.info("Moved to %s/%s", self.guild.name, channel.name)
+
+    async def _prime_audio(self) -> None:
+        """Play a short silence to warm up the voice client's audio pipeline.
+
+        Discord's voice client lazily initializes its opus encoder and UDP
+        socket on the first ``play()`` call.  By playing ~200ms of silence
+        right after connecting, the encoder and send loop are ready before
+        the first real audio needs to go out, preventing the "first response
+        is delayed or missing" issue.
+        """
+        if not self.voice_client or not self.voice_client.is_connected():
+            return
+        try:
+            # 200ms of silence at 48kHz mono 16-bit = 19200 bytes
+            silence = b"\x00" * 19200
+            buf = io.BytesIO(silence)
+            source = discord.FFmpegPCMAudio(
+                buf, pipe=True, before_options="-f s16le -ar 48000 -ac 1"
+            )
+            done = asyncio.Event()
+            self.voice_client.play(source, after=lambda e: done.set())
+            await asyncio.wait_for(done.wait(), timeout=2.0)
+            # Brief pause to let the encoder fully settle
+            await asyncio.sleep(0.1)
+            log.debug("Audio pipeline primed (200ms silence)")
+        except Exception:
+            log.debug("Audio priming failed (non-fatal)", exc_info=True)
 
     async def _on_recording_stop(self, sink: discord.sinks.Sink, *args) -> None:
         """Called when recording stops (py-cord requires this to be async)."""
@@ -221,8 +246,9 @@ class VoiceSession:
         try:
             if self.voice_client.is_playing():
                 self.voice_client.stop()
-                # Brief pause for FFmpeg subprocess cleanup
-                await asyncio.sleep(0.05)
+                # Wait for FFmpeg subprocess to fully terminate so the next
+                # play() call doesn't race with the old process cleanup.
+                await asyncio.sleep(0.2)
                 log.debug("Thinking sound stopped")
         except Exception:
             log.debug("Error stopping thinking sound", exc_info=True)
@@ -302,24 +328,8 @@ class VoiceSession:
 
             log.debug("STT transcribed in %.3fs: %r", stt_elapsed, text)
 
-            # Optional: verify voice identity
             member = self.guild.get_member(user_id)
             speaker_name = member.display_name if member else f"User#{user_id}"
-            if self._voice_id and member:
-                vid_start = time.monotonic()
-                verified = await self._voice_id.verify(
-                    user_id, audio_data, sample_rate
-                )
-                log.debug(
-                    "Voice ID for %s: verified=%s (%.3fs)",
-                    speaker_name, verified, time.monotonic() - vid_start,
-                )
-                if verified is False:
-                    log.warning(
-                        "Voice verification failed for %s in %s",
-                        speaker_name,
-                        self.channel.name,
-                    )
 
             log.info("[%s] %s", speaker_name, text)
 

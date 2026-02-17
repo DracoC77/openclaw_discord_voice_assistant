@@ -29,7 +29,6 @@ def setup_logging(level: str, debug_voice: bool = False) -> None:
             "discord_voice_assistant.audio.stt",
             "discord_voice_assistant.audio.tts",
             "discord_voice_assistant.audio.wake_word",
-            "discord_voice_assistant.audio.voice_id",
             "discord_voice_assistant.integrations.openclaw",
         ):
             logging.getLogger(name).setLevel(logging.DEBUG)
@@ -50,11 +49,7 @@ def main() -> None:
     log.info("Starting Discord Voice Assistant v%s", "0.1.0")
     if config.debug_voice:
         log.info("Voice pipeline verbose logging ENABLED (DEBUG_VOICE_PIPELINE=true)")
-    log.info(
-        "Features: wake_word=%s, voice_id=%s",
-        config.wake_word.enabled,
-        config.voice_id.enabled,
-    )
+    log.info("Features: wake_word=%s", config.wake_word.enabled)
 
     bot = VoiceAssistantBot(config)
 

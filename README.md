@@ -10,10 +10,9 @@ The bot's display name is configurable via `BOT_NAME` (defaults to "Clippy").
 - **Speech-to-text** — real-time transcription using [Faster Whisper](https://github.com/SYSTRAN/faster-whisper) (runs locally, no API costs)
 - **Text-to-speech** — natural voice output via [ElevenLabs](https://elevenlabs.io) or local [Piper TTS](https://github.com/rhasspy/piper) / espeak-ng fallback
 - **Wake word detection** — configurable hotword via [openWakeWord](https://github.com/dscripka/openWakeWord) for multi-user channels
-- **Speaker identification** — identifies who is speaking using voice embeddings ([Resemblyzer](https://github.com/resemble-ai/Resemblyzer))
 - **Authorization system** — restrict interactions to specific Discord users, with wake-word gating for others
 - **Inactivity timeout** — automatically leaves voice channels after configurable idle period
-- **Slash commands** — `/join`, `/leave`, `/rejoin`, `/enroll`, `/status`, `/timeout`, and more
+- **Slash commands** — `/join`, `/leave`, `/rejoin`, `/status`, `/timeout`, and more
 - **OpenClaw integration** — creates sessions with your OpenClaw agent for each voice conversation
 - **Docker sidecar** — runs alongside your existing OpenClaw container on the same Docker network
 - **Unraid ready** — ships with Dockerfile, docker-compose, Unraid XML template, and install script
@@ -109,7 +108,6 @@ python -m discord_voice_assistant.main
 | `/join` | Summon bot to your voice channel |
 | `/leave` | Make bot leave the voice channel |
 | `/rejoin` | Rejoin after inactivity disconnect |
-| `/enroll` | Record a voice sample for speaker identification |
 | `/voice-status` | Show details about the current voice session |
 | `/timeout <seconds>` | Set inactivity timeout (0 to disable) |
 | `/authorize @user` | Add user to authorized list (owner only) |
@@ -168,9 +166,6 @@ The bot includes built-in VAD (voice activity detection) that waits for 500ms of
 The bot leaves the voice channel after `INACTIVITY_TIMEOUT` seconds of no speech activity. Default is 300 seconds (5 minutes). Set to `0` to disable.
 
 When all human users leave the channel, the bot leaves immediately. When only unauthorized users remain, it starts a 30-second leave timer.
-
-### Speaker Identification
-Use `/enroll` to record a 10-second voice sample. The bot uses this to verify speaker identity via voice biometric embeddings ([Resemblyzer](https://github.com/resemble-ai/Resemblyzer)), adding an extra verification layer on top of Discord's per-user audio streams. This is optional and disabled by default (`VOICE_ID_ENABLED=false`).
 
 ## OpenClaw-Side Setup
 
@@ -389,14 +384,13 @@ See [`.env.example`](.env.example) for all available options with comments.
 | `INACTIVITY_TIMEOUT` | No | `300` | Seconds of inactivity before leaving (0 = disable) |
 | `MAX_SESSION_DURATION` | No | `0` | Max session length in seconds (0 = unlimited) |
 
-### Wake Word & Speaker Verification
+### Wake Word
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `WAKE_WORD_ENABLED` | No | `false` | Enable wake word detection (disabled by default) |
 | `WAKE_WORD_THRESHOLD` | No | `0.5` | Detection sensitivity (0.0–1.0, higher = stricter) |
 | `WAKE_WORD_MODEL_PATH` | No | — | Path to custom `.tflite` wake word model |
-| `VOICE_ID_ENABLED` | No | `false` | Speaker verification via voice embeddings (disabled by default) |
 
 ### Authorization
 
@@ -425,8 +419,7 @@ discord_voice_assistant/
 │   ├── sink.py          # Streaming audio receiver with VAD
 │   ├── stt.py           # Speech-to-text (Faster Whisper)
 │   ├── tts.py           # Text-to-speech (ElevenLabs/Piper)
-│   ├── wake_word.py     # Wake word detection (openWakeWord)
-│   └── voice_id.py      # Speaker identification (Resemblyzer)
+│   └── wake_word.py     # Wake word detection (openWakeWord)
 ├── commands/
 │   ├── general.py       # General slash commands
 │   └── voice.py         # Voice-specific slash commands
