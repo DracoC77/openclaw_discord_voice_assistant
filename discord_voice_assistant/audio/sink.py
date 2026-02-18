@@ -34,6 +34,10 @@ class StreamingSink(discord.sinks.Sink):
     3. When we detect end-of-speech (silence after audio), we:
        a. Downsample 48kHz stereo -> 16kHz mono
        b. Call the callback with the processed audio
+
+    Pipeline tasks are decoupled from silence detection tasks so that
+    new speech arriving while the pipeline is running (STT → LLM → TTS)
+    does not cancel the in-progress response.
     """
 
     def __init__(
@@ -50,8 +54,10 @@ class StreamingSink(discord.sinks.Sink):
         self._last_speech: dict[int, float] = {}
         # user_id -> whether currently speaking
         self._speaking: dict[int, bool] = defaultdict(bool)
-        # user_id -> asyncio.Task for silence monitoring
+        # user_id -> asyncio.Task for silence monitoring (cancelable by new speech)
         self._silence_tasks: dict[int, asyncio.Task] = {}
+        # Independent pipeline tasks that must NOT be canceled by new speech
+        self._pipeline_tasks: set[asyncio.Task] = set()
 
     @discord.sinks.Filters.container
     def write(self, data: bytes, user: int) -> None:
@@ -108,7 +114,12 @@ class StreamingSink(discord.sinks.Sink):
             task.cancel()
 
     async def _check_silence(self, user: int) -> None:
-        """Wait for sustained silence, then flush the buffer for processing."""
+        """Wait for sustained silence, then flush the buffer for processing.
+
+        This task is cancelable (new speech cancels it to reset the timer).
+        When silence is confirmed, the actual pipeline work is scheduled as
+        a separate independent task so it survives new-speech cancellation.
+        """
         try:
             await asyncio.sleep(VAD_SILENCE_DURATION)
 
@@ -124,7 +135,11 @@ class StreamingSink(discord.sinks.Sink):
                     user, now - last,
                 )
                 self._speaking[user] = False
-                await self._flush_buffer(user)
+                # Schedule flush as an independent task so new speech
+                # detection won't cancel the in-progress pipeline.
+                task = self._loop.create_task(self._flush_buffer(user))
+                self._pipeline_tasks.add(task)
+                task.add_done_callback(self._pipeline_tasks.discard)
         except asyncio.CancelledError:
             pass
         finally:
@@ -203,5 +218,11 @@ class StreamingSink(discord.sinks.Sink):
         for task in self._silence_tasks.values():
             task.cancel()
         self._silence_tasks.clear()
+        # Pipeline tasks are allowed to finish naturally; the voice_session
+        # checks is_active and handles disconnected voice clients gracefully.
+        # We only cancel them during full cleanup (session teardown).
+        for task in self._pipeline_tasks:
+            task.cancel()
+        self._pipeline_tasks.clear()
         self._buffers.clear()
         super().cleanup()

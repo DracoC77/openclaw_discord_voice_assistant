@@ -123,6 +123,20 @@ class VoiceSession:
                     self.voice_client.stop_recording()
             except Exception:
                 log.debug("Error stopping recording (expected during cleanup)")
+
+        # Give in-progress pipeline tasks a brief window to finish their
+        # LLM call before we tear down the voice client.  The pipeline
+        # checks is_active and voice_client state at each stage, so it
+        # will exit cleanly once we disconnect below.
+        if self._sink and self._sink._pipeline_tasks:
+            pending = [t for t in self._sink._pipeline_tasks if not t.done()]
+            if pending:
+                log.debug(
+                    "Waiting up to 2s for %d in-progress pipeline task(s)", len(pending),
+                )
+                await asyncio.wait(pending, timeout=2.0)
+
+        if self.voice_client:
             try:
                 if self.voice_client.is_connected():
                     await self.voice_client.disconnect(force=True)
@@ -362,6 +376,14 @@ class VoiceSession:
 
             log.debug("OpenClaw responded in %.3fs: %r", llm_elapsed, response[:500])
             log.info("[Assistant] %s", response)
+
+            if not self.is_active:
+                log.warning(
+                    "Session became inactive while waiting for LLM — "
+                    "discarding response for user %d (%.3fs wasted)",
+                    user_id, time.monotonic() - pipeline_start,
+                )
+                return
 
             tts_start = time.monotonic()
             await self._speak(response)
