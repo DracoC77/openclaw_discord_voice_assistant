@@ -375,6 +375,11 @@ docker compose up -d
 | `REQUIRE_WAKE_WORD_FOR_UNAUTHORIZED` | No | `true` | Require wake word from non-authorized users |
 | `LOG_LEVEL` | No | `INFO` | DEBUG/INFO/WARNING/ERROR |
 | `DEBUG_VOICE_PIPELINE` | No | `false` | Verbose voice pipeline debug logging |
+| `WEBHOOK_ENABLED` | No | `true` | Enable webhook server for proactive voice |
+| `WEBHOOK_PORT` | No | `18790` | Webhook HTTP server port |
+| `WEBHOOK_TOKEN` | Recommended | — | Bearer token for webhook authentication |
+| `WEBHOOK_DEFAULT_MODE` | No | `auto` | Default delivery: auto/live/voicemail/notify |
+| `WEBHOOK_NOTIFY_USER_IDS` | No | — | Discord user IDs for voicemail/notify fallback |
 
 ## Docker Compose with OpenClaw
 
@@ -406,6 +411,8 @@ services:
     restart: unless-stopped
     depends_on:
       - openclaw
+    ports:
+      - "${WEBHOOK_PORT:-18790}:${WEBHOOK_PORT:-18790}"
     environment:
       - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
       - OPENCLAW_URL=http://openclaw:18789
@@ -416,6 +423,11 @@ services:
       - TTS_PROVIDER=${TTS_PROVIDER:-local}
       - INACTIVITY_TIMEOUT=${INACTIVITY_TIMEOUT:-300}
       - WAKE_WORD_ENABLED=${WAKE_WORD_ENABLED:-false}
+      - WEBHOOK_ENABLED=${WEBHOOK_ENABLED:-true}
+      - WEBHOOK_PORT=${WEBHOOK_PORT:-18790}
+      - WEBHOOK_TOKEN=${WEBHOOK_TOKEN:-}
+      - WEBHOOK_DEFAULT_MODE=${WEBHOOK_DEFAULT_MODE:-auto}
+      - WEBHOOK_NOTIFY_USER_IDS=${WEBHOOK_NOTIFY_USER_IDS:-}
       - DEBUG_VOICE_PIPELINE=${DEBUG_VOICE_PIPELINE:-false}
     volumes:
       - dva-data:/app/data

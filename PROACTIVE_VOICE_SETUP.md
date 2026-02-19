@@ -27,7 +27,8 @@ WEBHOOK_ENABLED=true
 # Port for the webhook server
 WEBHOOK_PORT=18790
 
-# IMPORTANT: Set a strong shared secret for authentication
+# IMPORTANT: Set a strong shared secret for authentication.
+# Generate one with: openssl rand -hex 32
 WEBHOOK_TOKEN=your-secret-token-here
 
 # Default delivery mode (auto recommended)

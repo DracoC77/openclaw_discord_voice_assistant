@@ -262,6 +262,7 @@ Look for these lines in the logs — they mean everything is working:
 Logged in as YourBotName#1234 (ID: ...)
 Connected to N guild(s)
 Voice manager initialized
+Webhook server started on port 18790
 Synced N slash command(s)
 ```
 
@@ -302,6 +303,24 @@ These go in `/mnt/user/appdata/discord-voice-assistant/.env`:
 | `REQUIRE_WAKE_WORD_FOR_UNAUTHORIZED` | `true` | Require wake word from non-authorized users |
 | `LOG_LEVEL` | `INFO` | Logging level: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `DEBUG_VOICE_PIPELINE` | `false` | Verbose debug logging for voice pipeline (timing, audio stats) |
+| `WEBHOOK_ENABLED` | `true` | Enable webhook server for proactive voice messages |
+| `WEBHOOK_PORT` | `18790` | Webhook HTTP server port |
+| `WEBHOOK_TOKEN` | *(empty)* | Bearer token for webhook auth (recommended) |
+| `WEBHOOK_DEFAULT_MODE` | `auto` | Default delivery: `auto`, `live`, `voicemail`, `notify` |
+| `WEBHOOK_NOTIFY_USER_IDS` | *(empty)* | Your Discord user ID for voicemail/notify fallback |
+
+### Proactive Voice (Optional)
+
+The bot includes a webhook server that lets your OpenClaw agent speak to you
+unprompted — live in voice, as a DM voicemail, or as a notification to join voice.
+See [`PROACTIVE_VOICE_SETUP.md`](PROACTIVE_VOICE_SETUP.md) for full setup instructions.
+
+To generate a webhook token:
+```bash
+openssl rand -hex 32
+```
+Set the output as `WEBHOOK_TOKEN` in your `.env` and use the same value as
+`VOICE_WEBHOOK_TOKEN` on the OpenClaw side.
 
 ### How to Get a Discord User ID
 
