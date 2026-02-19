@@ -84,6 +84,19 @@ class AuthConfig:
 
 
 @dataclass(frozen=True)
+class WebhookConfig:
+    """Configuration for the proactive voice webhook server."""
+
+    enabled: bool = _bool(os.getenv("WEBHOOK_ENABLED", "true"))
+    port: int = int(os.getenv("WEBHOOK_PORT", "18790"))
+    token: str = os.getenv("WEBHOOK_TOKEN", "")
+    default_mode: str = os.getenv("WEBHOOK_DEFAULT_MODE", "auto")
+    notify_user_ids: list[int] = field(
+        default_factory=lambda: _int_list(os.getenv("WEBHOOK_NOTIFY_USER_IDS", ""))
+    )
+
+
+@dataclass(frozen=True)
 class Config:
     discord: DiscordConfig = field(default_factory=DiscordConfig)
     openclaw: OpenClawConfig = field(default_factory=OpenClawConfig)
@@ -93,6 +106,7 @@ class Config:
     voice: VoiceConfig = field(default_factory=VoiceConfig)
     thinking_sound: ThinkingSoundConfig = field(default_factory=ThinkingSoundConfig)
     auth: AuthConfig = field(default_factory=AuthConfig)
+    webhook: WebhookConfig = field(default_factory=WebhookConfig)
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
     debug_voice: bool = _bool(os.getenv("DEBUG_VOICE_PIPELINE", "false"))
     data_dir: Path = Path(os.getenv("DATA_DIR", "data"))

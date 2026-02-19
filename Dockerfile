@@ -70,5 +70,8 @@ ENV MODELS_DIR=/app/models
 
 VOLUME ["/app/data", "/app/models", "/app/logs"]
 
+# Expose the webhook server port (configurable via WEBHOOK_PORT env var)
+EXPOSE 18790
+
 ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["python", "-m", "discord_voice_assistant.main"]

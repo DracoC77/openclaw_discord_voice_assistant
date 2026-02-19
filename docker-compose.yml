@@ -23,6 +23,10 @@ services:
     # For Unraid, these paths map to /mnt/user/appdata/discord-voice-assistant/*
     # See unraid-template.xml for Unraid-specific configuration
 
+    # Expose the webhook server port for proactive voice messages
+    ports:
+      - "${WEBHOOK_PORT:-18790}:${WEBHOOK_PORT:-18790}"
+
     # Network: needs outbound access for Discord API, OpenClaw, and optionally ElevenLabs
     network_mode: bridge
 

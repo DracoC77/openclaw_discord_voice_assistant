@@ -10,6 +10,7 @@ from discord.ext import commands
 
 from discord_voice_assistant.commands.general import GeneralCommands
 from discord_voice_assistant.commands.voice import VoiceCommands
+from discord_voice_assistant.integrations.webhook_server import WebhookServer
 from discord_voice_assistant.voice_manager import VoiceManager
 
 if TYPE_CHECKING:
@@ -38,12 +39,20 @@ class VoiceAssistantBot(commands.Bot):
 
         self.config = config
         self.voice_manager = VoiceManager(self, config)
+        self._webhook_server: WebhookServer | None = None
 
     async def on_ready(self) -> None:
         log.info("Logged in as %s (ID: %s)", self.user, self.user.id)
         log.info("Connected to %d guild(s)", len(self.guilds))
 
         await self.voice_manager.initialize()
+
+        # Start the webhook server for proactive voice messages
+        if self.config.webhook.enabled:
+            self._webhook_server = WebhookServer(self, self.config)
+            await self._webhook_server.start()
+        else:
+            log.info("Webhook server disabled (WEBHOOK_ENABLED=false)")
 
         # Register cogs
         self.add_cog(GeneralCommands(self))
@@ -71,5 +80,7 @@ class VoiceAssistantBot(commands.Bot):
 
     async def close(self) -> None:
         log.info("Shutting down voice assistant...")
+        if self._webhook_server:
+            await self._webhook_server.stop()
         await self.voice_manager.cleanup()
         await super().close()
