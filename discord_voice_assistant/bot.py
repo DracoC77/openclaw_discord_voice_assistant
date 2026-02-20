@@ -46,13 +46,13 @@ class VoiceAssistantBot(commands.Bot):
         await self.voice_manager.initialize()
 
         # Register cogs
-        self.add_cog(GeneralCommands(self))
-        self.add_cog(VoiceCommands(self))
+        await self.add_cog(GeneralCommands(self))
+        await self.add_cog(VoiceCommands(self))
 
         # Sync slash commands
         try:
-            synced = await self.sync_commands()
-            log.info("Synced %d slash command(s)", len(self.pending_application_commands))
+            synced = await self.tree.sync()
+            log.info("Synced %d slash command(s)", len(synced))
         except Exception:
             log.exception("Failed to sync slash commands")
 

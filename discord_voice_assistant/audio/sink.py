@@ -1,4 +1,8 @@
-"""Custom Discord audio sink that streams per-user audio chunks for real-time processing."""
+"""Custom audio sink that streams per-user audio chunks for real-time processing.
+
+Uses discord-ext-voice-recv's AudioSink interface to receive decoded PCM
+audio from Discord voice channels.
+"""
 
 from __future__ import annotations
 
@@ -6,14 +10,17 @@ import asyncio
 import logging
 import time
 from collections import defaultdict
-from typing import Callable, Awaitable
+from typing import TYPE_CHECKING, Callable, Awaitable, Optional
 
-import discord
 import numpy as np
+from discord.ext.voice_recv import AudioSink, VoiceData
+
+if TYPE_CHECKING:
+    from discord import User
 
 log = logging.getLogger(__name__)
 
-# Discord sends Opus at 48kHz stereo, decoded to PCM by Pycord
+# Discord sends Opus at 48kHz stereo, decoded to PCM by voice_recv
 DISCORD_SAMPLE_RATE = 48000
 TARGET_SAMPLE_RATE = 16000
 # Process audio in chunks of this many seconds
@@ -24,7 +31,7 @@ SILENCE_THRESHOLD = 300
 VAD_SILENCE_DURATION = 1.0
 
 
-class StreamingSink(discord.sinks.Sink):
+class StreamingSink(AudioSink):
     """A custom sink that buffers per-user audio and triggers processing
     when speech segments are detected (via simple energy-based VAD).
 
@@ -36,7 +43,7 @@ class StreamingSink(discord.sinks.Sink):
        b. Call the callback with the processed audio
 
     Pipeline tasks are decoupled from silence detection tasks so that
-    new speech arriving while the pipeline is running (STT → LLM → TTS)
+    new speech arriving while the pipeline is running (STT -> LLM -> TTS)
     does not cancel the in-progress response.
     """
 
@@ -59,61 +66,72 @@ class StreamingSink(discord.sinks.Sink):
         # Independent pipeline tasks that must NOT be canceled by new speech
         self._pipeline_tasks: set[asyncio.Task] = set()
 
-    @discord.sinks.Filters.container
-    def write(self, data: bytes, user: int) -> None:
-        """Called by Pycord for each audio packet from a user.
+    def wants_opus(self) -> bool:
+        """We want decoded PCM, not raw Opus."""
+        return False
 
-        NOTE: This runs in the recv_audio thread, NOT the event loop.
+    def write(self, user: Optional[User], data: VoiceData) -> None:
+        """Called by voice_recv for each audio packet from a user.
+
+        NOTE: This runs in a background thread, NOT the event loop.
         Data is raw PCM: 48kHz, 2 channels (stereo), 16-bit signed LE.
         Each packet is typically 20ms of audio = 3840 bytes.
         """
+        if user is None:
+            return
+
+        user_id = user.id
+        pcm = data.pcm
+        if not pcm:
+            return
+
         # Check if this chunk contains actual speech (energy-based VAD)
-        rms = self._compute_rms(data)
+        rms = self._compute_rms(pcm)
 
         if rms > SILENCE_THRESHOLD:
-            if not self._speaking[user]:
+            if not self._speaking[user_id]:
                 log.debug(
                     "Speech START for user %d (rms=%.0f, threshold=%d)",
-                    user, rms, SILENCE_THRESHOLD,
+                    user_id, rms, SILENCE_THRESHOLD,
                 )
-            self._speaking[user] = True
-            self._last_speech[user] = time.monotonic()
-            self._buffers[user].extend(data)
+            self._speaking[user_id] = True
+            self._last_speech[user_id] = time.monotonic()
+            self._buffers[user_id].extend(pcm)
             log.debug(
                 "Audio buffered user=%d rms=%.0f buf=%d bytes",
-                user, rms, len(self._buffers[user]),
+                user_id, rms, len(self._buffers[user_id]),
             )
 
             # Cancel any pending silence task (thread-safe via call_soon_threadsafe)
-            if user in self._silence_tasks:
-                self._loop.call_soon_threadsafe(self._cancel_silence_task, user)
-        elif self._speaking[user]:
+            if user_id in self._silence_tasks:
+                self._loop.call_soon_threadsafe(self._cancel_silence_task, user_id)
+        elif self._speaking[user_id]:
             # Still accumulate a little silence at the end for natural cutoff
-            self._buffers[user].extend(data)
+            self._buffers[user_id].extend(pcm)
 
             # Start silence monitoring if not already running
-            if user not in self._silence_tasks:
+            if user_id not in self._silence_tasks:
                 log.debug(
                     "Silence after speech for user %d (rms=%.0f), starting VAD timer",
-                    user, rms,
+                    user_id, rms,
                 )
-                self._loop.call_soon_threadsafe(self._start_silence_check, user)
+                self._loop.call_soon_threadsafe(self._start_silence_check, user_id)
 
-    def _start_silence_check(self, user: int) -> None:
+    def _start_silence_check(self, user_id: int) -> None:
         """Schedule a silence check task on the event loop. Must be called from event loop."""
-        if user in self._silence_tasks:
+        if user_id in self._silence_tasks:
             return
-        self._silence_tasks[user] = self._loop.create_task(
-            self._check_silence(user)
+        self._silence_tasks[user_id] = self._loop.create_task(
+            self._check_silence(user_id)
         )
 
-    def _cancel_silence_task(self, user: int) -> None:
+    def _cancel_silence_task(self, user_id: int) -> None:
         """Cancel a pending silence check. Must be called from event loop."""
-        task = self._silence_tasks.pop(user, None)
+        task = self._silence_tasks.pop(user_id, None)
         if task:
             task.cancel()
 
-    async def _check_silence(self, user: int) -> None:
+    async def _check_silence(self, user_id: int) -> None:
         """Wait for sustained silence, then flush the buffer for processing.
 
         This task is cancelable (new speech cancels it to reset the timer).
@@ -124,46 +142,46 @@ class StreamingSink(discord.sinks.Sink):
             await asyncio.sleep(VAD_SILENCE_DURATION)
 
             # If still silent, process the buffered audio
-            if not self._speaking.get(user):
+            if not self._speaking.get(user_id):
                 return
 
             now = time.monotonic()
-            last = self._last_speech.get(user, 0)
+            last = self._last_speech.get(user_id, 0)
             if now - last >= VAD_SILENCE_DURATION:
                 log.debug(
                     "Speech END for user %d (silence=%.2fs), flushing buffer",
-                    user, now - last,
+                    user_id, now - last,
                 )
-                self._speaking[user] = False
+                self._speaking[user_id] = False
                 # Schedule flush as an independent task so new speech
                 # detection won't cancel the in-progress pipeline.
-                task = self._loop.create_task(self._flush_buffer(user))
+                task = self._loop.create_task(self._flush_buffer(user_id))
                 self._pipeline_tasks.add(task)
                 task.add_done_callback(self._pipeline_tasks.discard)
         except asyncio.CancelledError:
             pass
         finally:
-            self._silence_tasks.pop(user, None)
+            self._silence_tasks.pop(user_id, None)
 
-    async def _flush_buffer(self, user: int) -> None:
+    async def _flush_buffer(self, user_id: int) -> None:
         """Process accumulated audio for a user."""
-        if user not in self._buffers or not self._buffers[user]:
-            log.debug("Flush called for user %d but buffer is empty", user)
+        if user_id not in self._buffers or not self._buffers[user_id]:
+            log.debug("Flush called for user %d but buffer is empty", user_id)
             return
 
-        raw = bytes(self._buffers[user])
-        self._buffers[user].clear()
+        raw = bytes(self._buffers[user_id])
+        self._buffers[user_id].clear()
 
         log.debug(
             "Flushing buffer for user %d: %d bytes raw (%.2fs at 48kHz stereo)",
-            user, len(raw), len(raw) / (DISCORD_SAMPLE_RATE * 2 * 2),
+            user_id, len(raw), len(raw) / (DISCORD_SAMPLE_RATE * 2 * 2),
         )
 
         # Convert to mono 16kHz
         try:
             mono_16k = self._downsample(raw)
         except Exception:
-            log.exception("Error downsampling audio for user %d", user)
+            log.exception("Error downsampling audio for user %d", user_id)
             return
 
         audio_duration = len(mono_16k) / (TARGET_SAMPLE_RATE * 2)  # 16-bit = 2 bytes/sample
@@ -171,19 +189,19 @@ class StreamingSink(discord.sinks.Sink):
         # Minimum audio length check (~0.5s at 16kHz)
         if len(mono_16k) < TARGET_SAMPLE_RATE:
             log.debug(
-                "Audio too short for user %d (%.2fs), skipping", user, audio_duration,
+                "Audio too short for user %d (%.2fs), skipping", user_id, audio_duration,
             )
             return
 
         log.debug(
             "Sending audio chunk to pipeline: user=%d, %d bytes (%.2fs at 16kHz)",
-            user, len(mono_16k), audio_duration,
+            user_id, len(mono_16k), audio_duration,
         )
 
         try:
-            await self._callback(user, mono_16k, TARGET_SAMPLE_RATE)
+            await self._callback(user_id, mono_16k, TARGET_SAMPLE_RATE)
         except Exception:
-            log.exception("Error in audio callback for user %d", user)
+            log.exception("Error in audio callback for user %d", user_id)
 
     @staticmethod
     def _compute_rms(data: bytes) -> float:
@@ -225,4 +243,3 @@ class StreamingSink(discord.sinks.Sink):
             task.cancel()
         self._pipeline_tasks.clear()
         self._buffers.clear()
-        super().cleanup()
