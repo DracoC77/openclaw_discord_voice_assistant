@@ -4,9 +4,27 @@
 > **Deadline:** March 1, 2026 (hard cutoff)
 > **Current Library (at time of research):** py-cord[voice] >= 2.6.0
 
-> **Status: IMPLEMENTED** -- Option 1 (switch to discord.py) was implemented.
-> The project now uses `discord.py[voice]` + `davey` + `discord-ext-voice-recv`.
-> See the migration commit for details.
+> **Status: PARTIALLY IMPLEMENTED** -- Option 1 (switch to discord.py) was
+> implemented. The project now uses `discord.py[voice]` + `davey` +
+> `discord-ext-voice-recv`. However, **DAVE E2EE is NOT yet active** due to
+> two remaining gaps:
+>
+> 1. **discord.py 2.6.4 (PyPI) predates DAVE.** PR #10300 was merged to
+>    `master` on Jan 7, 2026, but the latest PyPI release (2.6.4) is from
+>    Oct 2025. DAVE code only exists on the unreleased `master` branch.
+>    Once discord.py publishes a new release with DAVE, update the pin.
+>
+> 2. **discord-ext-voice-recv has no DAVE support.** The library handles
+>    transport-level decryption (xsalsa20/xchacha20) and Opus decode but
+>    does NOT handle DAVE's frame-level E2EE decryption. Even with a DAVE-
+>    enabled discord.py, incoming audio from other users would remain
+>    DAVE-encrypted and undecryptable by voice_recv. There are zero issues
+>    or PRs for DAVE in the voice_recv repo.
+>
+> **Impact:** The bot currently works with transport-only encryption.
+> After March 1, 2026, Discord will block clients without DAVE from
+> joining voice. The bot MUST have both gaps closed before that date.
+> Monitor: discord.py releases, discord-ext-voice-recv DAVE progress.
 
 ---
 
