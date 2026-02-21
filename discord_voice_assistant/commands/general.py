@@ -6,6 +6,7 @@ import logging
 from typing import TYPE_CHECKING
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 if TYPE_CHECKING:
@@ -20,13 +21,13 @@ class GeneralCommands(commands.Cog):
     def __init__(self, bot: VoiceAssistantBot) -> None:
         self.bot = bot
 
-    @discord.slash_command(name="ping", description="Check if the voice assistant is alive")
-    async def ping(self, ctx: discord.ApplicationContext) -> None:
+    @app_commands.command(name="ping", description="Check if the voice assistant is alive")
+    async def ping(self, interaction: discord.Interaction) -> None:
         latency = round(self.bot.latency * 1000)
-        await ctx.respond(f"Pong! Latency: {latency}ms", ephemeral=True)
+        await interaction.response.send_message(f"Pong! Latency: {latency}ms", ephemeral=True)
 
-    @discord.slash_command(name="status", description="Show the voice assistant's current status")
-    async def status(self, ctx: discord.ApplicationContext) -> None:
+    @app_commands.command(name="status", description="Show the voice assistant's current status")
+    async def status(self, interaction: discord.Interaction) -> None:
         vm = self.bot.voice_manager
         sessions = len(vm._sessions)
         authorized = len(self.bot.config.auth.authorized_user_ids)
@@ -74,51 +75,67 @@ class GeneralCommands(commands.Cog):
                 inline=False,
             )
 
-        await ctx.respond(embed=embed, ephemeral=True)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @discord.slash_command(
+    @app_commands.command(
         name="authorize",
         description="Add a user to the authorized list (bot owner only)",
     )
-    @commands.is_owner()
+    @app_commands.describe(user="User to authorize")
     async def authorize(
         self,
-        ctx: discord.ApplicationContext,
-        user: discord.Option(discord.User, "User to authorize"),
+        interaction: discord.Interaction,
+        user: discord.User,
     ) -> None:
+        if not await self.bot.is_owner(interaction.user):
+            await interaction.response.send_message(
+                "Only the bot owner can use this command.", ephemeral=True
+            )
+            return
+
         if user.id not in self.bot.config.auth.authorized_user_ids:
             # Note: This is runtime-only. For persistence, update .env
             self.bot.config.auth.authorized_user_ids.append(user.id)
-            await ctx.respond(
+            await interaction.response.send_message(
                 f"Authorized {user.mention} for voice interactions. "
                 f"Add their ID ({user.id}) to AUTHORIZED_USER_IDS in .env for persistence.",
                 ephemeral=True,
             )
         else:
-            await ctx.respond(f"{user.mention} is already authorized.", ephemeral=True)
+            await interaction.response.send_message(
+                f"{user.mention} is already authorized.", ephemeral=True
+            )
 
-    @discord.slash_command(
+    @app_commands.command(
         name="deauthorize",
         description="Remove a user from the authorized list (bot owner only)",
     )
-    @commands.is_owner()
+    @app_commands.describe(user="User to deauthorize")
     async def deauthorize(
         self,
-        ctx: discord.ApplicationContext,
-        user: discord.Option(discord.User, "User to deauthorize"),
+        interaction: discord.Interaction,
+        user: discord.User,
     ) -> None:
+        if not await self.bot.is_owner(interaction.user):
+            await interaction.response.send_message(
+                "Only the bot owner can use this command.", ephemeral=True
+            )
+            return
+
         if user.id in self.bot.config.auth.authorized_user_ids:
             self.bot.config.auth.authorized_user_ids.remove(user.id)
-            await ctx.respond(
+            await interaction.response.send_message(
                 f"Deauthorized {user.mention}. "
                 f"Remove their ID from AUTHORIZED_USER_IDS in .env for persistence.",
                 ephemeral=True,
             )
         else:
-            await ctx.respond(f"{user.mention} is not in the authorized list.", ephemeral=True)
+            await interaction.response.send_message(
+                f"{user.mention} is not in the authorized list.", ephemeral=True
+            )
 
-    @discord.slash_command(name="help", description="Show available voice assistant commands")
-    async def help_cmd(self, ctx: discord.ApplicationContext) -> None:
+    @app_commands.command(name="help", description="Show available voice assistant commands")
+    async def help_cmd(self, interaction: discord.Interaction) -> None:
         name = self.bot.config.discord.bot_name
         embed = discord.Embed(
             title=f"{name} - Voice Assistant Commands",
@@ -148,4 +165,4 @@ class GeneralCommands(commands.Cog):
             inline=False,
         )
         embed.set_footer(text=f"Say '{name}' to activate in multi-user voice channels")
-        await ctx.respond(embed=embed, ephemeral=True)
+        await interaction.response.send_message(embed=embed, ephemeral=True)

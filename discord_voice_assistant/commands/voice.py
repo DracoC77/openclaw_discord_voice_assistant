@@ -6,6 +6,7 @@ import logging
 from typing import TYPE_CHECKING
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 if TYPE_CHECKING:
@@ -20,73 +21,75 @@ class VoiceCommands(commands.Cog):
     def __init__(self, bot: VoiceAssistantBot) -> None:
         self.bot = bot
 
-    @discord.slash_command(name="join", description="Summon the voice assistant to your channel")
-    async def join(self, ctx: discord.ApplicationContext) -> None:
-        if not ctx.author.voice or not ctx.author.voice.channel:
-            await ctx.respond(
+    @app_commands.command(name="join", description="Summon the voice assistant to your channel")
+    async def join(self, interaction: discord.Interaction) -> None:
+        if not interaction.user.voice or not interaction.user.voice.channel:
+            await interaction.response.send_message(
                 "You need to be in a voice channel first!", ephemeral=True
             )
             return
 
         vm = self.bot.voice_manager
-        if not vm.is_authorized(ctx.author.id):
-            await ctx.respond(
+        if not vm.is_authorized(interaction.user.id):
+            await interaction.response.send_message(
                 "You're not authorized to summon the voice assistant. "
                 "Ask the bot owner to use `/authorize` for you.",
                 ephemeral=True,
             )
             return
 
-        channel = ctx.author.voice.channel
-        await ctx.respond(f"Joining **{channel.name}**...", ephemeral=True)
+        channel = interaction.user.voice.channel
+        await interaction.response.send_message(f"Joining **{channel.name}**...", ephemeral=True)
 
         try:
             await vm.join_channel(channel)
         except Exception as e:
-            await ctx.edit(content=f"Failed to join: {e}")
+            await interaction.edit_original_response(content=f"Failed to join: {e}")
 
-    @discord.slash_command(name="leave", description="Make the voice assistant leave the channel")
-    async def leave(self, ctx: discord.ApplicationContext) -> None:
+    @app_commands.command(name="leave", description="Make the voice assistant leave the channel")
+    async def leave(self, interaction: discord.Interaction) -> None:
         vm = self.bot.voice_manager
-        session = vm.get_session(ctx.guild.id)
+        session = vm.get_session(interaction.guild.id)
 
         if not session or not session.is_active:
-            await ctx.respond("I'm not in a voice channel!", ephemeral=True)
+            await interaction.response.send_message("I'm not in a voice channel!", ephemeral=True)
             return
 
-        await ctx.respond("Leaving voice channel. Goodbye!", ephemeral=True)
-        await vm.leave_channel(ctx.guild.id)
+        await interaction.response.send_message("Leaving voice channel. Goodbye!", ephemeral=True)
+        await vm.leave_channel(interaction.guild.id)
 
-    @discord.slash_command(
+    @app_commands.command(
         name="rejoin",
         description="Rejoin the voice channel after inactivity disconnect",
     )
-    async def rejoin(self, ctx: discord.ApplicationContext) -> None:
-        if not ctx.author.voice or not ctx.author.voice.channel:
-            await ctx.respond(
+    async def rejoin(self, interaction: discord.Interaction) -> None:
+        if not interaction.user.voice or not interaction.user.voice.channel:
+            await interaction.response.send_message(
                 "You need to be in a voice channel first!", ephemeral=True
             )
             return
 
         vm = self.bot.voice_manager
-        if not vm.is_authorized(ctx.author.id):
-            await ctx.respond("You're not authorized.", ephemeral=True)
+        if not vm.is_authorized(interaction.user.id):
+            await interaction.response.send_message("You're not authorized.", ephemeral=True)
             return
 
-        channel = ctx.author.voice.channel
-        await ctx.respond(f"Rejoining **{channel.name}**...", ephemeral=True)
+        channel = interaction.user.voice.channel
+        await interaction.response.send_message(f"Rejoining **{channel.name}**...", ephemeral=True)
         await vm.join_channel(channel)
 
-    @discord.slash_command(
+    @app_commands.command(
         name="voice-status",
         description="Show details about the current voice session",
     )
-    async def voice_status(self, ctx: discord.ApplicationContext) -> None:
+    async def voice_status(self, interaction: discord.Interaction) -> None:
         vm = self.bot.voice_manager
-        session = vm.get_session(ctx.guild.id)
+        session = vm.get_session(interaction.guild.id)
 
         if not session or not session.is_active:
-            await ctx.respond("No active voice session in this server.", ephemeral=True)
+            await interaction.response.send_message(
+                "No active voice session in this server.", ephemeral=True
+            )
             return
 
         import time
@@ -118,25 +121,21 @@ class VoiceCommands(commands.Cog):
             inline=False,
         )
 
-        await ctx.respond(embed=embed, ephemeral=True)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @discord.slash_command(
+    @app_commands.command(
         name="timeout",
         description="Set the inactivity timeout (in seconds)",
     )
+    @app_commands.describe(seconds="Timeout in seconds (0 to disable)")
     async def timeout(
         self,
-        ctx: discord.ApplicationContext,
-        seconds: discord.Option(
-            int,
-            "Timeout in seconds (0 to disable)",
-            min_value=0,
-            max_value=3600,
-        ),
+        interaction: discord.Interaction,
+        seconds: app_commands.Range[int, 0, 3600],
     ) -> None:
         vm = self.bot.voice_manager
-        if not vm.is_authorized(ctx.author.id):
-            await ctx.respond("You're not authorized.", ephemeral=True)
+        if not vm.is_authorized(interaction.user.id):
+            await interaction.response.send_message("You're not authorized.", ephemeral=True)
             return
 
         # Runtime-only change
@@ -144,13 +143,15 @@ class VoiceCommands(commands.Cog):
         object.__setattr__(self.bot.config.voice, "inactivity_timeout", seconds)
 
         if seconds == 0:
-            await ctx.respond("Inactivity timeout disabled.", ephemeral=True)
+            await interaction.response.send_message(
+                "Inactivity timeout disabled.", ephemeral=True
+            )
         else:
-            await ctx.respond(
+            await interaction.response.send_message(
                 f"Inactivity timeout set to {seconds} seconds.", ephemeral=True
             )
 
         # Reset timer on current session if active
-        session = vm.get_session(ctx.guild.id)
+        session = vm.get_session(interaction.guild.id)
         if session and session.is_active:
-            vm._reset_inactivity_timer(ctx.guild.id)
+            vm._reset_inactivity_timer(interaction.guild.id)

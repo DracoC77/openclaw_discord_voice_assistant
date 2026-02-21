@@ -11,6 +11,7 @@ import time
 from typing import TYPE_CHECKING
 
 import discord
+from discord.ext import voice_recv
 
 from discord_voice_assistant.audio.sink import StreamingSink
 from discord_voice_assistant.audio.stt import SpeechToText
@@ -35,7 +36,7 @@ class VoiceSession:
         self.config = config
         self.channel = channel
         self.guild = channel.guild
-        self.voice_client: discord.VoiceClient | None = None
+        self.voice_client: voice_recv.VoiceRecvClient | None = None
         self.is_active = False
 
         # Audio pipeline components (lazy init)
@@ -53,7 +54,7 @@ class VoiceSession:
     async def start(self) -> None:
         """Connect to the voice channel and begin listening."""
         try:
-            self.voice_client = await self.channel.connect(cls=discord.VoiceClient)
+            self.voice_client = await self.channel.connect(cls=voice_recv.VoiceRecvClient)
         except discord.ClientException:
             # Already connected, try to move
             if self.guild.voice_client:
@@ -102,9 +103,9 @@ class VoiceSession:
         # silently dropped while the encoder spins up.
         await self._prime_audio()
 
-        # Start recording with our streaming sink
+        # Start listening with our streaming sink
         self._sink = StreamingSink(self._on_audio_chunk, asyncio.get_running_loop())
-        self.voice_client.start_recording(self._sink, self._on_recording_stop)
+        self.voice_client.listen(self._sink)
 
         log.info(
             "Voice session started in %s/%s (session: %s)",
@@ -119,10 +120,10 @@ class VoiceSession:
 
         if self.voice_client:
             try:
-                if self.voice_client.recording:
-                    self.voice_client.stop_recording()
+                if self.voice_client.is_listening():
+                    self.voice_client.stop_listening()
             except Exception:
-                log.debug("Error stopping recording (expected during cleanup)")
+                log.debug("Error stopping listening (expected during cleanup)")
 
         # Give in-progress pipeline tasks a brief window to finish their
         # LLM call before we tear down the voice client.  The pipeline
@@ -197,10 +198,6 @@ class VoiceSession:
         except Exception:
             log.debug("Audio priming failed (non-fatal)", exc_info=True)
 
-    async def _on_recording_stop(self, sink: discord.sinks.Sink, *args) -> None:
-        """Called when recording stops (py-cord requires this to be async)."""
-        log.debug("Recording stopped")
-
     async def _ensure_thinking_sound(self) -> str | None:
         """Generate thinking sound WAV and write to temp file, return path.
 
@@ -259,7 +256,9 @@ class VoiceSession:
             return
         try:
             if self.voice_client.is_playing():
-                self.voice_client.stop()
+                # Use stop_playing() to only stop playback without affecting
+                # audio listening (VoiceRecvClient.stop() would stop both).
+                self.voice_client.stop_playing()
                 # Wait for FFmpeg subprocess to fully terminate so the next
                 # play() call doesn't race with the old process cleanup.
                 await asyncio.sleep(0.2)
@@ -417,7 +416,7 @@ class VoiceSession:
             while self.voice_client.is_playing():
                 if time.monotonic() - wait_start > 120:
                     log.warning("Playback wait timed out after 120s, stopping current audio")
-                    self.voice_client.stop()
+                    self.voice_client.stop_playing()
                     break
                 await asyncio.sleep(0.1)
         except Exception:
@@ -429,7 +428,7 @@ class VoiceSession:
 
         # Play the audio
         # before_options tells FFmpeg the INPUT is WAV format
-        # (options would override the OUTPUT format that py-cord needs as s16le PCM)
+        # (options would override the OUTPUT format that discord.py needs as s16le PCM)
         try:
             source = discord.FFmpegPCMAudio(
                 io.BytesIO(audio_bytes), pipe=True, before_options="-f wav"
@@ -450,6 +449,6 @@ class VoiceSession:
                 await asyncio.wait_for(play_done.wait(), timeout=120)
             except asyncio.TimeoutError:
                 log.warning("Playback timed out after 120s")
-                self.voice_client.stop()
+                self.voice_client.stop_playing()
         except Exception:
             log.exception("Failed to play audio")
