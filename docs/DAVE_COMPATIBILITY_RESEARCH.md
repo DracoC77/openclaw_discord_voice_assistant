@@ -2,7 +2,11 @@
 
 > **Date:** February 19, 2026
 > **Deadline:** March 1, 2026 (hard cutoff)
-> **Current Library:** py-cord[voice] >= 2.6.0
+> **Current Library (at time of research):** py-cord[voice] >= 2.6.0
+
+> **Status: IMPLEMENTED** -- Option 1 (switch to discord.py) was implemented.
+> The project now uses `discord.py[voice]` + `davey` + `discord-ext-voice-recv`.
+> See the migration commit for details.
 
 ---
 

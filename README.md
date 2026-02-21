@@ -24,7 +24,7 @@ This is a **standalone Python application** that runs as a Docker sidecar alongs
 ```
 [Discord Voice Channel]
        │
-  [Voice Assistant Container]  ── Python, Pycord, FFmpeg
+  [Voice Assistant Container]  ── Python, discord.py, FFmpeg
        │  receives per-user audio streams
        │  wake word detection (openWakeWord)
        │  speech-to-text (Faster Whisper)
