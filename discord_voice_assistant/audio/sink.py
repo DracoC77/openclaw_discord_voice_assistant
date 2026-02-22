@@ -1,7 +1,7 @@
 """Custom audio sink that streams per-user audio chunks for real-time processing.
 
-Uses discord-ext-voice-recv's AudioSink interface to receive decoded PCM
-audio from Discord voice channels.
+Receives decoded PCM audio (48kHz stereo 16-bit) from the voice bridge
+and handles VAD, buffering, and downsampling before passing to the pipeline.
 """
 
 from __future__ import annotations
@@ -10,17 +10,13 @@ import asyncio
 import logging
 import time
 from collections import defaultdict
-from typing import TYPE_CHECKING, Callable, Awaitable, Optional
+from typing import Callable, Awaitable
 
 import numpy as np
-from discord.ext.voice_recv import AudioSink, VoiceData
-
-if TYPE_CHECKING:
-    from discord import User
 
 log = logging.getLogger(__name__)
 
-# Discord sends Opus at 48kHz stereo, decoded to PCM by voice_recv
+# Discord sends Opus at 48kHz stereo, decoded to PCM by the voice bridge
 DISCORD_SAMPLE_RATE = 48000
 TARGET_SAMPLE_RATE = 16000
 # Process audio in chunks of this many seconds
@@ -31,12 +27,12 @@ SILENCE_THRESHOLD = 300
 VAD_SILENCE_DURATION = 1.0
 
 
-class StreamingSink(AudioSink):
+class StreamingSink:
     """A custom sink that buffers per-user audio and triggers processing
     when speech segments are detected (via simple energy-based VAD).
 
     Audio flow:
-    1. Discord delivers decoded PCM (48kHz, stereo, 16-bit) per user
+    1. Voice bridge delivers decoded PCM (48kHz, stereo, 16-bit) per user
     2. We buffer it per-user
     3. When we detect end-of-speech (silence after audio), we:
        a. Downsample 48kHz stereo -> 16kHz mono
@@ -52,7 +48,6 @@ class StreamingSink(AudioSink):
         callback: Callable[[int, bytes, int], Awaitable[None]],
         loop: asyncio.AbstractEventLoop,
     ) -> None:
-        super().__init__()
         self._callback = callback
         self._loop = loop
         # user_id -> list of raw PCM bytes chunks
@@ -66,22 +61,12 @@ class StreamingSink(AudioSink):
         # Independent pipeline tasks that must NOT be canceled by new speech
         self._pipeline_tasks: set[asyncio.Task] = set()
 
-    def wants_opus(self) -> bool:
-        """We want decoded PCM, not raw Opus."""
-        return False
+    def write(self, user_id: int, pcm: bytes) -> None:
+        """Process a chunk of PCM audio from a user.
 
-    def write(self, user: Optional[User], data: VoiceData) -> None:
-        """Called by voice_recv for each audio packet from a user.
-
-        NOTE: This runs in a background thread, NOT the event loop.
+        Called from the async context when audio arrives from the bridge.
         Data is raw PCM: 48kHz, 2 channels (stereo), 16-bit signed LE.
-        Each packet is typically 20ms of audio = 3840 bytes.
         """
-        if user is None:
-            return
-
-        user_id = user.id
-        pcm = data.pcm
         if not pcm:
             return
 
@@ -102,9 +87,9 @@ class StreamingSink(AudioSink):
                 user_id, rms, len(self._buffers[user_id]),
             )
 
-            # Cancel any pending silence task (thread-safe via call_soon_threadsafe)
+            # Cancel any pending silence task
             if user_id in self._silence_tasks:
-                self._loop.call_soon_threadsafe(self._cancel_silence_task, user_id)
+                self._cancel_silence_task(user_id)
         elif self._speaking[user_id]:
             # Still accumulate a little silence at the end for natural cutoff
             self._buffers[user_id].extend(pcm)
@@ -115,10 +100,10 @@ class StreamingSink(AudioSink):
                     "Silence after speech for user %d (rms=%.0f), starting VAD timer",
                     user_id, rms,
                 )
-                self._loop.call_soon_threadsafe(self._start_silence_check, user_id)
+                self._start_silence_check(user_id)
 
     def _start_silence_check(self, user_id: int) -> None:
-        """Schedule a silence check task on the event loop. Must be called from event loop."""
+        """Schedule a silence check task on the event loop."""
         if user_id in self._silence_tasks:
             return
         self._silence_tasks[user_id] = self._loop.create_task(
@@ -126,7 +111,7 @@ class StreamingSink(AudioSink):
         )
 
     def _cancel_silence_task(self, user_id: int) -> None:
-        """Cancel a pending silence check. Must be called from event loop."""
+        """Cancel a pending silence check."""
         task = self._silence_tasks.pop(user_id, None)
         if task:
             task.cancel()
@@ -236,9 +221,6 @@ class StreamingSink(AudioSink):
         for task in self._silence_tasks.values():
             task.cancel()
         self._silence_tasks.clear()
-        # Pipeline tasks are allowed to finish naturally; the voice_session
-        # checks is_active and handles disconnected voice clients gracefully.
-        # We only cancel them during full cleanup (session teardown).
         for task in self._pipeline_tasks:
             task.cancel()
         self._pipeline_tasks.clear()

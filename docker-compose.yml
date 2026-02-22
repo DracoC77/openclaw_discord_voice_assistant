@@ -13,6 +13,7 @@ services:
       - TZ=${TZ:-America/New_York}
       - DATA_DIR=/app/data
       - MODELS_DIR=/app/models
+      - VOICE_BRIDGE_URL=ws://voice-bridge:9876
     volumes:
       # Persistent data
       - ./data:/app/data
@@ -22,9 +23,9 @@ services:
       - ./logs:/app/logs
     # For Unraid, these paths map to /mnt/user/appdata/discord-voice-assistant/*
     # See unraid-template.xml for Unraid-specific configuration
-
-    # Network: needs outbound access for Discord API, OpenClaw, and optionally ElevenLabs
-    network_mode: bridge
+    depends_on:
+      voice-bridge:
+        condition: service_started
 
     # Resource limits (adjust based on STT model size)
     deploy:
@@ -41,3 +42,24 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
+
+  voice-bridge:
+    build: ./voice_bridge
+    container_name: voice-bridge
+    restart: unless-stopped
+    environment:
+      - BRIDGE_PORT=9876
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "node", "-e", "process.exit(0)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

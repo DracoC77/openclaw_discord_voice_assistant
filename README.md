@@ -24,8 +24,12 @@ This is a **standalone Python application** that runs as a Docker sidecar alongs
 ```
 [Discord Voice Channel]
        │
+  [Voice Bridge Container]  ── Node.js, @discordjs/voice, DAVE E2EE
+       │  DAVE encryption/decryption
+       │  Opus encode/decode
+       │  per-user audio streams via WebSocket
+       │
   [Voice Assistant Container]  ── Python, discord.py, FFmpeg
-       │  receives per-user audio streams
        │  wake word detection (openWakeWord)
        │  speech-to-text (Faster Whisper)
        │
@@ -36,7 +40,10 @@ This is a **standalone Python application** that runs as a Docker sidecar alongs
        v
   [Voice Assistant Container]
        │  text-to-speech (ElevenLabs/Piper)
-       │  plays audio in voice channel
+       │  sends audio to bridge via WebSocket
+       v
+  [Voice Bridge Container]
+       │  Opus encode, DAVE encrypt
        v
   [Discord Voice Channel]
 ```
@@ -376,6 +383,12 @@ See [`.env.example`](.env.example) for all available options with comments.
 | `ELEVENLABS_API_KEY` | If elevenlabs | — | ElevenLabs API key |
 | `ELEVENLABS_VOICE_ID` | No | `21m00Tcm4TlvDq8ikWAM` | ElevenLabs voice ID |
 
+### Voice Bridge (DAVE E2EE)
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `VOICE_BRIDGE_URL` | No | `ws://voice-bridge:9876` | WebSocket URL for the Node.js voice bridge |
+
 ### Voice Channel Behavior
 
 | Variable | Required | Default | Description |
@@ -413,6 +426,7 @@ discord_voice_assistant/
 ├── main.py              # Entry point
 ├── bot.py               # Discord bot core
 ├── config.py            # Configuration management
+├── voice_bridge.py      # WebSocket client for Node.js voice bridge
 ├── voice_manager.py     # Voice channel lifecycle
 ├── voice_session.py     # Per-channel voice session
 ├── audio/
@@ -425,6 +439,11 @@ discord_voice_assistant/
 │   └── voice.py         # Voice-specific slash commands
 └── integrations/
     └── openclaw.py      # OpenClaw API client
+voice_bridge/
+├── Dockerfile           # Node.js voice bridge container
+├── package.json         # Node.js dependencies
+└── src/
+    └── index.js         # Voice bridge server (DAVE E2EE)
 scripts/
 └── install.sh           # Automated install script
 AGENT_INSTALL.md         # Guide for OpenClaw agent deployment

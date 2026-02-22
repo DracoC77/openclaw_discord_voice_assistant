@@ -35,6 +35,10 @@ models/
 logs/
 *.log
 
+# Node.js (voice bridge)
+node_modules/
+package-lock.json
+
 # Docker
 docker-compose.override.yml
 
