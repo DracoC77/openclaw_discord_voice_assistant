@@ -19,6 +19,7 @@ def setup_logging(level: str, debug_voice: bool = False) -> None:
     # Silence noisy libraries
     logging.getLogger("discord").setLevel(logging.WARNING)
     logging.getLogger("discord.gateway").setLevel(logging.WARNING)
+    logging.getLogger("websockets").setLevel(logging.WARNING)
 
     if debug_voice:
         # Enable DEBUG for voice pipeline modules regardless of global level

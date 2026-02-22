@@ -10,6 +10,7 @@ from discord.ext import commands
 
 from discord_voice_assistant.commands.general import GeneralCommands
 from discord_voice_assistant.commands.voice import VoiceCommands
+from discord_voice_assistant.voice_bridge import VoiceBridgeClient
 from discord_voice_assistant.voice_manager import VoiceManager
 
 if TYPE_CHECKING:
@@ -37,11 +38,23 @@ class VoiceAssistantBot(commands.Bot):
         )
 
         self.config = config
-        self.voice_manager = VoiceManager(self, config)
+        self.bridge = VoiceBridgeClient(config.voice_bridge.url)
+        self.voice_manager = VoiceManager(self, config, self.bridge)
 
     async def on_ready(self) -> None:
         log.info("Logged in as %s (ID: %s)", self.user, self.user.id)
         log.info("Connected to %d guild(s)", len(self.guilds))
+
+        # Connect to the Node.js voice bridge
+        await self.bridge.start()
+        try:
+            await self.bridge.wait_connected(timeout=15.0)
+            log.info("Voice bridge connected at %s", self.config.voice_bridge.url)
+        except Exception:
+            log.error(
+                "Failed to connect to voice bridge at %s — voice will not work",
+                self.config.voice_bridge.url,
+            )
 
         await self.voice_manager.initialize()
 
@@ -72,4 +85,5 @@ class VoiceAssistantBot(commands.Bot):
     async def close(self) -> None:
         log.info("Shutting down voice assistant...")
         await self.voice_manager.cleanup()
+        await self.bridge.stop()
         await super().close()

@@ -67,6 +67,11 @@ class ThinkingSoundConfig:
 
 
 @dataclass(frozen=True)
+class VoiceBridgeConfig:
+    url: str = os.getenv("VOICE_BRIDGE_URL", "ws://voice-bridge:9876")
+
+
+@dataclass(frozen=True)
 class VoiceConfig:
     auto_join: bool = _bool(os.getenv("AUTO_JOIN_ENABLED", "true"))
     inactivity_timeout: int = int(os.getenv("INACTIVITY_TIMEOUT", "300"))
@@ -91,6 +96,7 @@ class Config:
     stt: STTConfig = field(default_factory=STTConfig)
     wake_word: WakeWordConfig = field(default_factory=WakeWordConfig)
     voice: VoiceConfig = field(default_factory=VoiceConfig)
+    voice_bridge: VoiceBridgeConfig = field(default_factory=VoiceBridgeConfig)
     thinking_sound: ThinkingSoundConfig = field(default_factory=ThinkingSoundConfig)
     auth: AuthConfig = field(default_factory=AuthConfig)
     log_level: str = os.getenv("LOG_LEVEL", "INFO")

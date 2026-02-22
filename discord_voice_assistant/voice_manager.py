@@ -13,6 +13,7 @@ from discord_voice_assistant.voice_session import VoiceSession
 if TYPE_CHECKING:
     from discord_voice_assistant.bot import VoiceAssistantBot
     from discord_voice_assistant.config import Config
+    from discord_voice_assistant.voice_bridge import VoiceBridgeClient
 
 log = logging.getLogger(__name__)
 
@@ -20,9 +21,10 @@ log = logging.getLogger(__name__)
 class VoiceManager:
     """Coordinates voice channel presence and session lifecycle."""
 
-    def __init__(self, bot: VoiceAssistantBot, config: Config) -> None:
+    def __init__(self, bot: VoiceAssistantBot, config: Config, bridge: VoiceBridgeClient) -> None:
         self.bot = bot
         self.config = config
+        self.bridge = bridge
         # guild_id -> VoiceSession
         self._sessions: dict[int, VoiceSession] = {}
         self._inactivity_tasks: dict[int, asyncio.Task] = {}
@@ -93,7 +95,7 @@ class VoiceManager:
         if guild_id in self._sessions:
             await self._sessions[guild_id].stop()
 
-        session = VoiceSession(self.bot, self.config, channel)
+        session = VoiceSession(self.bot, self.config, channel, self.bridge)
         self._sessions[guild_id] = session
         await session.start()
 

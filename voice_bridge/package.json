@@ -1,0 +1,16 @@
+{
+  "name": "openclaw-voice-bridge",
+  "version": "0.1.0",
+  "description": "Node.js voice bridge for DAVE E2EE support",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "@discordjs/voice": "^0.18.0",
+    "@discordjs/opus": "^0.9.0",
+    "prism-media": "^1.3.5",
+    "ws": "^8.16.0",
+    "sodium-native": "^4.3.1"
+  }
+}

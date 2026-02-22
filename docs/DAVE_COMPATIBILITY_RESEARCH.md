@@ -4,9 +4,20 @@
 > **Deadline:** March 1, 2026 (hard cutoff)
 > **Current Library (at time of research):** py-cord[voice] >= 2.6.0
 
-> **Status: IMPLEMENTED** -- Option 1 (switch to discord.py) was implemented.
-> The project now uses `discord.py[voice]` + `davey` + `discord-ext-voice-recv`.
-> See the migration commit for details.
+> **Status: IMPLEMENTED (Hybrid Architecture)** -- After discovering that
+> Python's discord.py ecosystem lacks DAVE voice receive support, we
+> adopted a hybrid approach:
+>
+> - **Node.js voice bridge** (`voice_bridge/`) handles all Discord voice
+>   I/O using `@discordjs/voice` which has production-ready DAVE E2EE
+>   support (send + receive).
+> - **Python bot** retains the Discord gateway connection, slash commands,
+>   and the full audio intelligence pipeline (STT, LLM, TTS).
+> - Communication between Python and Node.js is via WebSocket (JSON
+>   control messages, base64-encoded PCM audio).
+>
+> This architecture provides full DAVE compliance before the March 1, 2026
+> deadline while preserving the existing Python pipeline.
 
 ---
 
