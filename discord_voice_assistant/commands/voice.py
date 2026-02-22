@@ -38,6 +38,13 @@ class VoiceCommands(commands.Cog):
             )
             return
 
+        if not self.bot.bridge.is_connected:
+            await interaction.response.send_message(
+                "Voice bridge is not connected. Voice features are temporarily unavailable.",
+                ephemeral=True,
+            )
+            return
+
         channel = interaction.user.voice.channel
         await interaction.response.send_message(f"Joining **{channel.name}**...", ephemeral=True)
 
@@ -94,9 +101,12 @@ class VoiceCommands(commands.Cog):
 
         import time
 
-        duration = time.monotonic() - session._start_time
+        duration = time.monotonic() - session.start_time
         minutes, seconds = divmod(int(duration), 60)
         hours, minutes = divmod(minutes, 60)
+
+        bridge = self.bot.bridge
+        guild_id_str = str(interaction.guild.id)
 
         embed = discord.Embed(
             title="Voice Session Status",
@@ -110,7 +120,17 @@ class VoiceCommands(commands.Cog):
         )
         embed.add_field(
             name="Session ID",
-            value=f"`{session._session_id[:8]}...`" if session._session_id else "N/A",
+            value=f"`{session.session_id[:8]}...`" if session.session_id else "N/A",
+            inline=True,
+        )
+        embed.add_field(
+            name="Bridge",
+            value="Connected" if bridge.is_connected else "Disconnected",
+            inline=True,
+        )
+        embed.add_field(
+            name="DAVE E2EE",
+            value="Active" if bridge.is_dave_active(guild_id_str) else "Inactive",
             inline=True,
         )
 
@@ -154,4 +174,4 @@ class VoiceCommands(commands.Cog):
         # Reset timer on current session if active
         session = vm.get_session(interaction.guild.id)
         if session and session.is_active:
-            vm._reset_inactivity_timer(interaction.guild.id)
+            vm.reset_inactivity(interaction.guild.id)

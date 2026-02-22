@@ -28,6 +28,14 @@ class VoiceManager:
         # guild_id -> VoiceSession
         self._sessions: dict[int, VoiceSession] = {}
         self._inactivity_tasks: dict[int, asyncio.Task] = {}
+        # Serialize join/leave operations per guild to prevent race conditions
+        self._guild_locks: dict[int, asyncio.Lock] = {}
+
+    def _get_guild_lock(self, guild_id: int) -> asyncio.Lock:
+        """Get or create a per-guild lock for serializing join/leave operations."""
+        if guild_id not in self._guild_locks:
+            self._guild_locks[guild_id] = asyncio.Lock()
+        return self._guild_locks[guild_id]
 
     async def initialize(self) -> None:
         """Initialize audio subsystems (models loaded lazily on first use)."""
@@ -85,31 +93,56 @@ class VoiceManager:
             member.guild.name,
             member.display_name,
         )
-        await self.join_channel(channel)
+        try:
+            await self.join_channel(channel)
+        except Exception:
+            log.warning(
+                "Failed to auto-join %s in %s",
+                channel.name, member.guild.name, exc_info=True,
+            )
 
     async def join_channel(self, channel: discord.VoiceChannel) -> VoiceSession:
-        """Join a voice channel and start a new session."""
+        """Join a voice channel and start a new session.
+
+        Uses a per-guild lock to prevent concurrent join/leave races.
+        """
         guild_id = channel.guild.id
+        async with self._get_guild_lock(guild_id):
+            # Clean up existing session if any
+            if guild_id in self._sessions:
+                try:
+                    await self._sessions[guild_id].stop()
+                except Exception:
+                    log.warning("Error stopping existing session in guild %d", guild_id, exc_info=True)
+                finally:
+                    self._sessions.pop(guild_id, None)
 
-        # Clean up existing session if any
-        if guild_id in self._sessions:
-            await self._sessions[guild_id].stop()
+            session = VoiceSession(self.bot, self.config, channel, self.bridge)
+            self._sessions[guild_id] = session
+            try:
+                await session.start()
+            except Exception:
+                self._sessions.pop(guild_id, None)
+                raise
 
-        session = VoiceSession(self.bot, self.config, channel, self.bridge)
-        self._sessions[guild_id] = session
-        await session.start()
-
-        self._reset_inactivity_timer(guild_id)
-        return session
+            self._reset_inactivity_timer(guild_id)
+            return session
 
     async def leave_channel(self, guild_id: int) -> None:
-        """Leave the voice channel in a guild and clean up the session."""
-        self._cancel_inactivity_timer(guild_id)
+        """Leave the voice channel in a guild and clean up the session.
 
-        if guild_id in self._sessions:
-            session = self._sessions.pop(guild_id)
-            await session.stop()
-            log.info("Left voice channel in guild %d", guild_id)
+        Uses a per-guild lock to prevent concurrent join/leave races.
+        """
+        async with self._get_guild_lock(guild_id):
+            self._cancel_inactivity_timer(guild_id)
+
+            if guild_id in self._sessions:
+                session = self._sessions.pop(guild_id)
+                try:
+                    await session.stop()
+                except Exception:
+                    log.warning("Error stopping session in guild %d", guild_id, exc_info=True)
+                log.info("Left voice channel in guild %d", guild_id)
 
     async def _check_should_leave(
         self, guild_id: int, channel: discord.VoiceChannel
@@ -169,6 +202,20 @@ class VoiceManager:
 
     def get_session(self, guild_id: int) -> VoiceSession | None:
         return self._sessions.get(guild_id)
+
+    @property
+    def session_count(self) -> int:
+        """Number of active voice sessions."""
+        return len(self._sessions)
+
+    @property
+    def active_sessions(self) -> dict[int, VoiceSession]:
+        """Read-only view of active sessions (guild_id -> VoiceSession)."""
+        return dict(self._sessions)
+
+    def reset_inactivity(self, guild_id: int, timeout: int | None = None) -> None:
+        """Public API to reset the inactivity timer for a guild."""
+        self._reset_inactivity_timer(guild_id, timeout=timeout)
 
     async def cleanup(self) -> None:
         """Disconnect from all voice channels."""

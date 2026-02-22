@@ -39,23 +39,27 @@ class _BridgeVoiceProtocol(discord.VoiceProtocol):
         super().__init__(client, channel)
         self.voice_data: dict = {}
         self._connected = False
+        self._voice_server_event = asyncio.Event()
+        self._voice_state_event = asyncio.Event()
 
     async def on_voice_server_update(self, data: dict) -> None:
         self.voice_data["voice_server"] = data
         log.debug("Captured voice_server_update: endpoint=%s", data.get("endpoint"))
         self._connected = True
+        self._voice_server_event.set()
 
     async def on_voice_state_update(self, data: dict) -> None:
         self.voice_data["voice_state"] = data
         self.voice_data["session_id"] = data.get("session_id", "")
         log.debug("Captured voice_state_update: session=%s", data.get("session_id"))
+        self._voice_state_event.set()
 
     async def connect(self, *, timeout: float, reconnect: bool, **kwargs) -> None:
-        for _ in range(int(timeout * 10)):
-            if self.voice_data.get("voice_server") and self.voice_data.get("voice_state"):
-                return
-            await asyncio.sleep(0.1)
-        if not self.voice_data.get("voice_server"):
+        try:
+            async with asyncio.timeout(timeout):
+                await self._voice_server_event.wait()
+                await self._voice_state_event.wait()
+        except TimeoutError:
             raise asyncio.TimeoutError("Timed out waiting for voice server data")
 
     def is_connected(self) -> bool:
@@ -108,11 +112,26 @@ class VoiceSession:
         """Compatibility property for voice_manager checks."""
         return self._voice_client
 
+    @property
+    def session_id(self) -> str | None:
+        """The OpenClaw session ID for this voice session."""
+        return self._session_id
+
+    @property
+    def start_time(self) -> float:
+        """Monotonic timestamp when the session started."""
+        return self._start_time
+
     async def start(self) -> None:
         """Connect to the voice channel via the bridge and begin listening."""
         guild_id = self._guild_id_str
         channel_id = str(self.channel.id)
         user_id = str(self.bot.user.id)
+
+        if not self.bridge.is_connected:
+            raise RuntimeError(
+                "Voice bridge is not connected. Cannot join voice channel."
+            )
 
         try:
             # Connect via discord.py to get voice credentials from the gateway
@@ -212,8 +231,10 @@ class VoiceSession:
 
         try:
             await self.bridge.disconnect(guild_id)
+        except ConnectionError:
+            log.debug("Bridge not connected during cleanup, skipping disconnect")
         except Exception:
-            log.debug("Error telling bridge to disconnect (expected during cleanup)")
+            log.warning("Error telling bridge to disconnect", exc_info=True)
 
         if self._voice_client:
             try:
@@ -281,11 +302,16 @@ class VoiceSession:
 
     async def _start_thinking_sound(self) -> None:
         """Play a subtle thinking sound while waiting for AI response."""
+        if not self.is_active:
+            return
         if self._thinking_sound is None:
             await self._ensure_thinking_sound()
         if self._thinking_sound:
             try:
                 self._is_playing = True
+                # Send directly rather than using bridge.play() since we don't
+                # want to block waiting for play_done — the LLM response will
+                # stop this sound and then play the actual TTS audio.
                 await self.bridge.send({
                     "op": "play",
                     "guild_id": self._guild_id_str,
@@ -293,6 +319,8 @@ class VoiceSession:
                     "format": "wav",
                 })
                 log.debug("Thinking sound started via bridge")
+            except ConnectionError:
+                log.debug("Bridge not connected, skipping thinking sound")
             except Exception:
                 log.debug("Failed to play thinking sound", exc_info=True)
 
