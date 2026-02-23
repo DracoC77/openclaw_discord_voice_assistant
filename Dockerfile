@@ -20,11 +20,23 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 RUN pip install --no-cache-dir .
 
-# ---- Node.js build stage: install voice bridge dependencies ----
-FROM node:20-slim AS node-builder
+# ---- Node.js binary source (just grab the binaries) ----
+FROM node:20-slim AS node-bin
 
+# ---- Node.js build stage: compile native modules against the runtime glibc ----
+# IMPORTANT: This must use the same base image as the runtime stage so that
+# native addons (@discordjs/opus, sodium-native) link against the correct
+# glibc version.  Building in node:20-slim then copying into python:3.11-slim
+# causes a glibc mismatch (e.g. 2.36 vs 2.41).
+FROM python:3.11-slim AS node-builder
+
+# Copy Node.js runtime from official image
+COPY --from=node-bin /usr/local/bin/node /usr/local/bin/node
+COPY --from=node-bin /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm
+
+# Build tools needed to compile native addons (opus, sodium-native)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 \
     make \
     g++ \
     && rm -rf /var/lib/apt/lists/*
@@ -45,9 +57,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js runtime (no build tools needed, native modules are pre-compiled)
-COPY --from=node-builder /usr/local/bin/node /usr/local/bin/node
-COPY --from=node-builder /usr/local/lib/node_modules /usr/local/lib/node_modules
+# Install Node.js runtime (native modules were compiled against this same base image)
+COPY --from=node-bin /usr/local/bin/node /usr/local/bin/node
+COPY --from=node-bin /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm
 
 WORKDIR /app
