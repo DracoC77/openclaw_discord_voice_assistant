@@ -175,3 +175,61 @@ class VoiceCommands(commands.Cog):
         session = vm.get_session(interaction.guild.id)
         if session and session.is_active:
             vm.reset_inactivity(interaction.guild.id)
+
+    @app_commands.command(
+        name="new",
+        description="Start a fresh conversation (clears all context)",
+    )
+    async def new_session(self, interaction: discord.Interaction) -> None:
+        vm = self.bot.voice_manager
+        session = vm.get_session(interaction.guild.id)
+
+        if not session or not session.is_active or not session.session_id:
+            await interaction.response.send_message(
+                "No active voice session in this server.", ephemeral=True
+            )
+            return
+
+        if not vm.is_authorized(interaction.user.id):
+            await interaction.response.send_message("You're not authorized.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        success = await session._openclaw.reset_session(session.session_id)
+        if success:
+            await interaction.followup.send(
+                "Conversation cleared. Starting fresh!", ephemeral=True
+            )
+        else:
+            await interaction.followup.send(
+                "Failed to reset conversation. Check logs for details.", ephemeral=True
+            )
+
+    @app_commands.command(
+        name="compact",
+        description="Summarize conversation history to free up context space",
+    )
+    async def compact_session(self, interaction: discord.Interaction) -> None:
+        vm = self.bot.voice_manager
+        session = vm.get_session(interaction.guild.id)
+
+        if not session or not session.is_active or not session.session_id:
+            await interaction.response.send_message(
+                "No active voice session in this server.", ephemeral=True
+            )
+            return
+
+        if not vm.is_authorized(interaction.user.id):
+            await interaction.response.send_message("You're not authorized.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        success = await session._openclaw.compact_session(session.session_id)
+        if success:
+            await interaction.followup.send(
+                "Conversation compacted. Context has been summarized.", ephemeral=True
+            )
+        else:
+            await interaction.followup.send(
+                "Failed to compact conversation. Check logs for details.", ephemeral=True
+            )

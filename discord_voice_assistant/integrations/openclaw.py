@@ -58,29 +58,20 @@ class OpenClawClient:
         the session key.  We use a **stable** ID based on the context
         (guild + channel) so that OpenClaw reuses the same session
         across bot reconnects rather than spawning a new one each time.
-        Call :meth:`reset_session` after this to send ``/new`` and
-        clear the conversation history in OpenClaw.
         """
         session_id = f"voice:{context}" if context else "voice:main"
         log.info("Created session ID: %s", session_id)
         return session_id
 
-    async def reset_session(self, session_id: str) -> None:
-        """Send ``/new`` to OpenClaw to start a fresh conversation.
-
-        This clears the conversation history on the OpenClaw side
-        without creating a brand-new session key, keeping the
-        session list tidy while still giving us a clean context
-        at the start of every voice session.
-        """
-        log.info("Resetting OpenClaw session: %s", session_id)
+    async def _send_command(self, session_id: str, command: str) -> bool:
+        """Send a slash command to OpenClaw and return True on success."""
         try:
             http = await self._get_http()
 
             payload = {
                 "model": "openclaw",
                 "messages": [
-                    {"role": "user", "content": "/new"},
+                    {"role": "user", "content": command},
                 ],
                 "user": session_id,
             }
@@ -92,15 +83,39 @@ class OpenClawClient:
             url = f"{self.base_url}/v1/chat/completions"
             async with http.post(url, json=payload, headers=headers) as resp:
                 if resp.status == 200:
-                    log.info("Session reset successful (session: %s)", session_id)
-                else:
-                    text_resp = await resp.text()
-                    log.warning(
-                        "Session reset returned %d: %s",
-                        resp.status, text_resp[:2000],
+                    log.info(
+                        "Command '%s' successful (session: %s)", command, session_id,
                     )
+                    return True
+                text_resp = await resp.text()
+                log.warning(
+                    "Command '%s' returned %d: %s",
+                    command, resp.status, text_resp[:2000],
+                )
+                return False
         except aiohttp.ClientError as e:
-            log.error("Failed to reset session %s: %s", session_id, e)
+            log.error(
+                "Failed to send '%s' for session %s: %s", command, session_id, e,
+            )
+            return False
+
+    async def reset_session(self, session_id: str) -> bool:
+        """Send ``/new`` to OpenClaw to start a fresh conversation.
+
+        This clears the conversation history on the OpenClaw side
+        without creating a brand-new session key.
+        """
+        log.info("Resetting OpenClaw session: %s", session_id)
+        return await self._send_command(session_id, "/new")
+
+    async def compact_session(self, session_id: str) -> bool:
+        """Send ``/compact`` to OpenClaw to summarize conversation history.
+
+        This compresses the conversation context without losing it entirely,
+        keeping the session's knowledge while freeing up context window space.
+        """
+        log.info("Compacting OpenClaw session: %s", session_id)
+        return await self._send_command(session_id, "/compact")
 
     async def send_message(
         self,
