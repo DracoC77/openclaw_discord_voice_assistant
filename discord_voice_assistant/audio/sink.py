@@ -1,7 +1,11 @@
 """Custom audio sink that streams per-user audio chunks for real-time processing.
 
 Receives decoded PCM audio (48kHz stereo 16-bit) from the voice bridge
-and handles VAD, buffering, and downsampling before passing to the pipeline.
+and handles buffering and downsampling before passing to the pipeline.
+
+The voice bridge already performs silence-based segmentation (EndBehaviorType.AfterSilence),
+so each audio message is a complete speech utterance. The process_segment() method handles
+this case directly without additional VAD.
 """
 
 from __future__ import annotations
@@ -117,6 +121,66 @@ class StreamingSink:
                     user_id, rms,
                 )
                 self._start_silence_check(user_id)
+
+    def process_segment(self, user_id: int, pcm: bytes) -> None:
+        """Process a complete speech segment from the voice bridge.
+
+        The bridge already handles silence detection (EndBehaviorType.AfterSilence),
+        so each audio message is a complete utterance. This method bypasses the
+        sink's VAD and directly schedules the audio for pipeline processing.
+
+        Data is raw PCM: 48kHz, 2 channels (stereo), 16-bit signed LE.
+        """
+        if not pcm:
+            return
+
+        rms = self._compute_rms(pcm)
+        audio_secs = len(pcm) / (DISCORD_SAMPLE_RATE * 2 * 2)
+        log.debug(
+            "Complete segment from user %d: %d bytes (%.2fs, rms=%.0f)",
+            user_id, len(pcm), audio_secs, rms,
+        )
+
+        if rms <= SILENCE_THRESHOLD:
+            log.debug("Segment is silence (rms=%.0f), skipping", rms)
+            return
+
+        # Schedule processing as an independent task
+        task = self._loop.create_task(self._process_raw_segment(user_id, pcm))
+        self._pipeline_tasks.add(task)
+        task.add_done_callback(self._pipeline_tasks.discard)
+
+    async def _process_raw_segment(self, user_id: int, raw: bytes) -> None:
+        """Downsample and pass a complete segment to the pipeline callback."""
+        log.debug(
+            "Processing segment for user %d: %d bytes raw (%.2fs at 48kHz stereo)",
+            user_id, len(raw), len(raw) / (DISCORD_SAMPLE_RATE * 2 * 2),
+        )
+
+        try:
+            mono_16k = self._downsample(raw)
+        except Exception:
+            log.exception("Error downsampling audio for user %d", user_id)
+            return
+
+        audio_duration = len(mono_16k) / (TARGET_SAMPLE_RATE * 2)
+
+        min_bytes = TARGET_SAMPLE_RATE  # 16000 bytes = 0.5s
+        if len(mono_16k) < min_bytes:
+            log.debug(
+                "Segment too short for user %d (%.2fs), skipping", user_id, audio_duration,
+            )
+            return
+
+        log.debug(
+            "Sending segment to pipeline: user=%d, %d bytes (%.2fs at 16kHz)",
+            user_id, len(mono_16k), audio_duration,
+        )
+
+        try:
+            await self._callback(user_id, mono_16k, TARGET_SAMPLE_RATE)
+        except Exception:
+            log.exception("Error in audio callback for user %d", user_id)
 
     def _start_silence_check(self, user_id: int) -> None:
         """Schedule a silence check task on the event loop."""

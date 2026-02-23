@@ -218,10 +218,15 @@ class VoiceSession:
         )
 
     async def _on_bridge_audio(self, user_id: int, pcm: bytes, guild_id: str) -> None:
-        """Called when the bridge sends decoded audio from a user."""
+        """Called when the bridge sends decoded audio from a user.
+
+        The bridge already segments audio by silence (EndBehaviorType.AfterSilence),
+        so each message is a complete speech utterance. Use process_segment()
+        to skip the sink's VAD and process immediately.
+        """
         if not self.is_active or not self._sink:
             return
-        self._sink.write(user_id, pcm)
+        self._sink.process_segment(user_id, pcm)
 
     async def stop(self) -> None:
         """Disconnect and clean up the session."""
