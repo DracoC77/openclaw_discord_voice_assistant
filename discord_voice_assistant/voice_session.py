@@ -132,7 +132,12 @@ class VoiceSession:
         return self._start_time
 
     async def start(self) -> None:
-        """Connect to the voice channel via the bridge and begin listening."""
+        """Connect to the voice channel via the bridge and begin listening.
+
+        The pipeline is warmed up BEFORE joining the voice channel so the bot
+        only appears in the channel once it is ready to receive audio.  This
+        avoids a confusing window where the bot is visible but deaf.
+        """
         guild_id = self._guild_id_str
         channel_id = str(self.channel.id)
         user_id = str(self.bot.user.id)
@@ -142,12 +147,38 @@ class VoiceSession:
                 "Voice bridge is not connected. Cannot join voice channel."
             )
 
+        # --- Phase 1: Initialize and warm up the pipeline (bot is NOT in channel yet) ---
+        self._stt = SpeechToText(self.config.stt)
+        self._tts = TextToSpeech(self.config.tts)
+        if self.config.wake_word.enabled:
+            self._wake_word = WakeWordDetector(self.config.wake_word)
+            log.info("Wake word detection ENABLED")
+        else:
+            log.info("Wake word detection DISABLED")
+        self._openclaw = OpenClawClient(self.config.openclaw)
+
+        self._session_id = await self._openclaw.create_session(
+            context=f"discord:voice:{self.guild.id}:{self.channel.id}"
+        )
+        await self._openclaw.reset_session(self._session_id)
+
+        warmup_start = time.monotonic()
+        warmup_tasks = [
+            self._stt.warm_up(),
+            self._tts.warm_up(),
+            self._ensure_thinking_sound(),
+        ]
+        if self._wake_word:
+            loop = asyncio.get_running_loop()
+            warmup_tasks.append(loop.run_in_executor(None, self._wake_word.warm_up))
+        await asyncio.gather(*warmup_tasks, return_exceptions=True)
+        log.info("Pipeline warm-up completed in %.3fs", time.monotonic() - warmup_start)
+
+        # --- Phase 2: Join the voice channel (pipeline is ready) ---
         try:
-            # Connect via discord.py to get voice credentials from the gateway
             self._voice_client = await self.channel.connect(cls=_BridgeVoiceProtocol)
             voice_data = self._voice_client.voice_data
 
-            # Tell the bridge to set up the voice connection
             await self.bridge.join(
                 guild_id=guild_id,
                 channel_id=channel_id,
@@ -155,13 +186,11 @@ class VoiceSession:
                 session_id=voice_data.get("session_id", ""),
             )
 
-            # Forward the voice credentials to the bridge
             if voice_data.get("voice_state"):
                 await self.bridge.send_voice_state_update(voice_data["voice_state"])
             if voice_data.get("voice_server"):
                 await self.bridge.send_voice_server_update(voice_data["voice_server"])
 
-            # Wait for the bridge to establish the voice connection
             ready = await self.bridge.wait_ready(guild_id, timeout=15.0)
             if not ready:
                 log.error("Voice bridge failed to connect for guild %s", guild_id)
@@ -177,35 +206,7 @@ class VoiceSession:
         self.is_active = True
         self._start_time = time.monotonic()
 
-        # Initialize pipeline components
-        self._stt = SpeechToText(self.config.stt)
-        self._tts = TextToSpeech(self.config.tts)
-        if self.config.wake_word.enabled:
-            self._wake_word = WakeWordDetector(self.config.wake_word)
-            log.info("Wake word detection ENABLED")
-        else:
-            log.info("Wake word detection DISABLED")
-        self._openclaw = OpenClawClient(self.config.openclaw)
-
-        self._session_id = await self._openclaw.create_session(
-            context=f"discord:voice:{self.guild.id}:{self.channel.id}"
-        )
-        await self._openclaw.reset_session(self._session_id)
-
-        # Pre-warm models concurrently
-        warmup_start = time.monotonic()
-        warmup_tasks = [
-            self._stt.warm_up(),
-            self._tts.warm_up(),
-            self._ensure_thinking_sound(),
-        ]
-        if self._wake_word:
-            loop = asyncio.get_running_loop()
-            warmup_tasks.append(loop.run_in_executor(None, self._wake_word.warm_up))
-        await asyncio.gather(*warmup_tasks, return_exceptions=True)
-        log.info("Pipeline warm-up completed in %.3fs", time.monotonic() - warmup_start)
-
-        # Register audio callback with the bridge
+        # Register audio callback immediately — pipeline is already warm
         self._sink = StreamingSink(self._on_audio_chunk, asyncio.get_running_loop())
         self.bridge.register_audio_callback(guild_id, self._on_bridge_audio)
 
