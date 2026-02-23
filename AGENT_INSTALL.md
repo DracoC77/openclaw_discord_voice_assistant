@@ -365,6 +365,7 @@ docker compose up -d
 | `STT_MODEL_SIZE` | No | `base` | tiny/base/small/medium/large-v2/large-v3 |
 | `STT_DEVICE` | No | `auto` | Inference device: cpu/cuda/auto |
 | `STT_COMPUTE_TYPE` | No | `int8` | Quantization: int8/float16/float32 |
+| `STT_PRELOAD` | No | `true` | Keep Whisper model in memory between sessions |
 | `WAKE_WORD_ENABLED` | No | `false` | Enable wake word (disabled by default) |
 | `WAKE_WORD_THRESHOLD` | No | `0.5` | Wake word sensitivity (0.0–1.0) |
 | `WAKE_WORD_MODEL_PATH` | No | — | Custom `.tflite` wake word model |

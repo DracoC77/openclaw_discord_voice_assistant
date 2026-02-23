@@ -74,9 +74,24 @@ class _BridgeVoiceProtocol(discord.VoiceProtocol):
     def is_connected(self) -> bool:
         return self._connected
 
+    async def move_to(self, channel: discord.abc.Connectable) -> None:
+        """Move to a different voice channel by sending a new OP 4."""
+        self.channel = channel
+        await channel.guild.change_voice_state(channel=channel)
+        # Reset events so callers can await fresh voice data if needed
+        self._voice_server_event.clear()
+        self._voice_state_event.clear()
+
     async def disconnect(self, *, force: bool = False) -> None:
         self._connected = False
-        await self.channel.guild.change_voice_state(channel=None)
+        try:
+            await self.channel.guild.change_voice_state(channel=None)
+        except Exception:
+            pass
+        # Tell discord.py to deregister this voice client from the guild.
+        # Without this, guild.voice_client remains set and subsequent
+        # channel.connect() calls fail with "Already connected".
+        self.cleanup()
 
 
 class VoiceSession:
@@ -94,6 +109,7 @@ class VoiceSession:
         config: Config,
         channel: discord.VoiceChannel,
         bridge: VoiceBridgeClient,
+        shared_stt: SpeechToText | None = None,
     ) -> None:
         self.bot = bot
         self.config = config
@@ -103,7 +119,9 @@ class VoiceSession:
         self._voice_client: _BridgeVoiceProtocol | None = None
         self.is_active = False
 
-        self._stt: SpeechToText | None = None
+        # Use shared (preloaded) STT instance if provided, otherwise create per-session
+        self._stt: SpeechToText | None = shared_stt
+        self._owns_stt = shared_stt is None
         self._tts: TextToSpeech | None = None
         self._wake_word: WakeWordDetector | None = None
         self._openclaw: OpenClawClient | None = None
@@ -148,7 +166,9 @@ class VoiceSession:
             )
 
         # --- Phase 1: Initialize and warm up the pipeline (bot is NOT in channel yet) ---
-        self._stt = SpeechToText(self.config.stt)
+        if self._stt is None:
+            self._stt = SpeechToText(self.config.stt)
+            self._owns_stt = True
         self._tts = TextToSpeech(self.config.tts)
         if self.config.wake_word.enabled:
             self._wake_word = WakeWordDetector(self.config.wake_word)
@@ -164,10 +184,12 @@ class VoiceSession:
 
         warmup_start = time.monotonic()
         warmup_tasks = [
-            self._stt.warm_up(),
             self._tts.warm_up(),
             self._ensure_thinking_sound(),
         ]
+        # Only warm up STT if this session owns it (not preloaded)
+        if self._owns_stt:
+            warmup_tasks.append(self._stt.warm_up())
         if self._wake_word:
             loop = asyncio.get_running_loop()
             warmup_tasks.append(loop.run_in_executor(None, self._wake_word.warm_up))
@@ -177,31 +199,39 @@ class VoiceSession:
         # --- Phase 2: Join the voice channel (pipeline is ready) ---
         try:
             self._voice_client = await self.channel.connect(cls=_BridgeVoiceProtocol)
-            voice_data = self._voice_client.voice_data
-
-            await self.bridge.join(
-                guild_id=guild_id,
-                channel_id=channel_id,
-                user_id=user_id,
-                session_id=voice_data.get("session_id", ""),
-            )
-
-            if voice_data.get("voice_state"):
-                await self.bridge.send_voice_state_update(voice_data["voice_state"])
-            if voice_data.get("voice_server"):
-                await self.bridge.send_voice_server_update(voice_data["voice_server"])
-
-            ready = await self.bridge.wait_ready(guild_id, timeout=15.0)
-            if not ready:
-                log.error("Voice bridge failed to connect for guild %s", guild_id)
-                raise RuntimeError("Voice bridge connection timeout")
-
         except discord.ClientException:
-            if self.guild.voice_client:
-                await self.guild.voice_client.move_to(self.channel)
-                self._voice_client = self.guild.voice_client
+            # Stale voice client from a previous session — disconnect it
+            # and retry the connect.
+            stale = self.guild.voice_client
+            if stale:
+                log.warning("Cleaning up stale voice client before reconnecting")
+                try:
+                    await stale.disconnect(force=True)
+                except Exception:
+                    # If disconnect fails, force-cleanup discord.py's reference
+                    stale.cleanup()
+                self._voice_client = await self.channel.connect(cls=_BridgeVoiceProtocol)
             else:
                 raise
+
+        voice_data = self._voice_client.voice_data
+
+        await self.bridge.join(
+            guild_id=guild_id,
+            channel_id=channel_id,
+            user_id=user_id,
+            session_id=voice_data.get("session_id", ""),
+        )
+
+        if voice_data.get("voice_state"):
+            await self.bridge.send_voice_state_update(voice_data["voice_state"])
+        if voice_data.get("voice_server"):
+            await self.bridge.send_voice_server_update(voice_data["voice_server"])
+
+        ready = await self.bridge.wait_ready(guild_id, timeout=15.0)
+        if not ready:
+            log.error("Voice bridge failed to connect for guild %s", guild_id)
+            raise RuntimeError("Voice bridge connection timeout")
 
         self.is_active = True
         self._start_time = time.monotonic()

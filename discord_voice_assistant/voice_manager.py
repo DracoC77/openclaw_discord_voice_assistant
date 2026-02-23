@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 import discord
 
+from discord_voice_assistant.audio.stt import SpeechToText
 from discord_voice_assistant.voice_session import VoiceSession
 
 if TYPE_CHECKING:
@@ -30,6 +31,8 @@ class VoiceManager:
         self._inactivity_tasks: dict[int, asyncio.Task] = {}
         # Serialize join/leave operations per guild to prevent race conditions
         self._guild_locks: dict[int, asyncio.Lock] = {}
+        # Shared STT instance that persists across sessions (when STT_PRELOAD=true)
+        self._shared_stt: SpeechToText | None = None
 
     def _get_guild_lock(self, guild_id: int) -> asyncio.Lock:
         """Get or create a per-guild lock for serializing join/leave operations."""
@@ -38,7 +41,16 @@ class VoiceManager:
         return self._guild_locks[guild_id]
 
     async def initialize(self) -> None:
-        """Initialize audio subsystems (models loaded lazily on first use)."""
+        """Initialize audio subsystems.
+
+        When STT_PRELOAD is enabled, the Whisper model is loaded once here and
+        shared across all voice sessions so it survives leave/rejoin cycles.
+        """
+        if self.config.stt.preload:
+            log.info("STT preload enabled — loading Whisper model at startup")
+            self._shared_stt = SpeechToText(self.config.stt)
+            await self._shared_stt.warm_up()
+            log.info("Whisper model preloaded and ready")
         log.info("Voice manager initialized")
 
     def is_authorized(self, user_id: int) -> bool:
@@ -117,7 +129,10 @@ class VoiceManager:
                 finally:
                     self._sessions.pop(guild_id, None)
 
-            session = VoiceSession(self.bot, self.config, channel, self.bridge)
+            session = VoiceSession(
+                self.bot, self.config, channel, self.bridge,
+                shared_stt=self._shared_stt,
+            )
             self._sessions[guild_id] = session
             try:
                 await session.start()

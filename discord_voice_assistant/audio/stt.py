@@ -65,15 +65,27 @@ class SpeechToText:
         return self._model
 
     def _model_cached_locally(self, download_root: str) -> bool:
-        """Check if the Whisper model files already exist in the cache."""
+        """Check if the Whisper model files already exist in the cache.
+
+        faster-whisper uses the HuggingFace hub cache layout:
+          <download_root>/models--Systran--faster-whisper-<size>/
+            snapshots/<hash>/model.bin
+        """
         from pathlib import Path
 
         cache_dir = Path(download_root)
-        # faster-whisper stores models in subdirectories named after the model.
-        # The model is ready when the model.bin file exists.
-        for model_dir in cache_dir.iterdir() if cache_dir.exists() else []:
-            if model_dir.is_dir() and (model_dir / "model.bin").exists():
-                if self.config.model_size in model_dir.name:
+        if not cache_dir.exists():
+            return False
+
+        model_size = self.config.model_size
+        # Look for the HuggingFace hub cache directory for this model
+        for entry in cache_dir.iterdir():
+            if not entry.is_dir():
+                continue
+            # Match the model directory name pattern
+            if f"faster-whisper-{model_size}" in entry.name:
+                # Check for model.bin anywhere under snapshots/
+                for model_bin in entry.glob("snapshots/*/model.bin"):
                     return True
         return False
 
