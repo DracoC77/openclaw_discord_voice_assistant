@@ -36,8 +36,9 @@ _MARKDOWN_PATTERNS = [
     (re.compile(r"_(.+?)_"), r"\1"),                       # italic alt
     (re.compile(r"~~(.+?)~~"), r"\1"),                     # strikethrough
     (re.compile(r"^#{1,6}\s+", re.MULTILINE), ""),         # headers
-    (re.compile(r"^\s*[-*+]\s+", re.MULTILINE), ""),       # bullet points
-    (re.compile(r"\[([^\]]+)\]\([^)]+\)"), r"\1"),         # links
+    (re.compile(r"^\s*[-*+•]\s+", re.MULTILINE), "Next, "),  # bullet points → spoken transition
+    (re.compile(r"^\s*\d+\.\s+", re.MULTILINE), ""),        # numbered lists
+    (re.compile(r"\[([^\]]+)\]\([^)]+\)"), r"\1"),           # links
 ]
 # Common emoji ranges
 _EMOJI_RE = re.compile(
@@ -68,6 +69,11 @@ def _clean_for_tts(text: str) -> str:
     text = _EMOJI_RE.sub("", text)
     # Collapse whitespace
     text = re.sub(r"\s+", " ", text).strip()
+    # Clean up spoken transitions at boundaries
+    if text.startswith("Next, "):
+        text = text[6:]
+    if text.endswith("Next,"):
+        text = text[:-5].strip()
     return text
 
 

@@ -490,3 +490,8 @@ class VoiceSession:
             )
         except Exception:
             log.exception("Failed to play audio via bridge")
+
+        # Drain buffered audio that accumulated during playback to prevent
+        # echo from users' microphones picking up the bot's speech.
+        if self._sink:
+            self._sink.drain()

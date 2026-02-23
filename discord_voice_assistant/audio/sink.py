@@ -305,6 +305,21 @@ class StreamingSink:
 
         return mono_16k.tobytes()
 
+    def drain(self) -> None:
+        """Discard all buffered audio and reset speaking states.
+
+        Call after TTS playback to prevent the bot from processing audio
+        that accumulated during playback (e.g. echo from users' microphones
+        picking up the bot's speech).  Does NOT cancel in-progress pipeline
+        tasks — only pending silence timers and unprocessed buffers.
+        """
+        for uid in list(self._silence_tasks):
+            self._cancel_silence_task(uid)
+        self._buffers.clear()
+        self._speaking.clear()
+        self._last_speech.clear()
+        log.debug("Audio drain: cleared all buffers and speaking states")
+
     def cleanup(self) -> None:
         """Clean up resources."""
         for task in self._silence_tasks.values():
