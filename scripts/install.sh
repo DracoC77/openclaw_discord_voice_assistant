@@ -61,7 +61,7 @@ if [ ! -f "$INSTALL_DIR/.env" ]; then
     warn ""
     warn "Required:"
     warn "  DISCORD_BOT_TOKEN=your_token_here"
-    warn "  OPENCLAW_URL=http://your_openclaw_container:3000"
+    warn "  OPENCLAW_URL=http://your_openclaw_container:18789"
     warn ""
     warn "Edit now? (Press Enter to continue, or Ctrl+C to edit first)"
     read -r || true

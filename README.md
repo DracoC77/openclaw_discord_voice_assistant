@@ -118,6 +118,8 @@ python -m discord_voice_assistant.main
 | `/voice-status` | Show details about the current voice session |
 | `/timeout <seconds>` | Set inactivity timeout (0 to disable) |
 | `/authorize @user` | Add user to authorized list (owner only) |
+| `/new` | Start a fresh conversation (clears all context) |
+| `/compact` | Summarize conversation history to free up context space |
 | `/deauthorize @user` | Remove user from authorized list (owner only) |
 
 ## Voice Behavior

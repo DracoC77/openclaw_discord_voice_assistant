@@ -291,8 +291,10 @@ class VoiceSession:
                 log.debug("Error disconnecting voice client (expected during cleanup)")
             self._voice_client = None
 
-        if self._openclaw and self._session_id:
-            await self._openclaw.end_session(self._session_id)
+        if self._openclaw:
+            if self._session_id:
+                await self._openclaw.end_session(self._session_id)
+            await self._openclaw.close()
 
         if self._sink:
             self._sink.cleanup()
