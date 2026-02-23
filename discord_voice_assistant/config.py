@@ -68,7 +68,7 @@ class ThinkingSoundConfig:
 
 @dataclass(frozen=True)
 class VoiceBridgeConfig:
-    url: str = os.getenv("VOICE_BRIDGE_URL", "ws://voice-bridge:9876")
+    url: str = os.getenv("VOICE_BRIDGE_URL", "ws://localhost:9876")
 
 
 @dataclass(frozen=True)

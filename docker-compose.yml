@@ -1,5 +1,12 @@
 version: "3.8"
 
+# Docker Compose two-container mode:
+#   - discord-voice-assistant: Python bot (STT, LLM, TTS pipeline)
+#   - voice-bridge: Node.js voice I/O with DAVE E2EE
+#
+# For Unraid / single-container deployments, use the Docker image directly
+# (it embeds the voice bridge). See unraid-template.xml.
+
 services:
   discord-voice-assistant:
     # Use the pre-built image from GHCR (recommended):
@@ -8,11 +15,14 @@ services:
     # build: .
     container_name: discord-voice-assistant
     restart: unless-stopped
+    # In two-container mode, run only the Python bot (not the embedded bridge)
+    command: ["python", "-m", "discord_voice_assistant.main"]
     env_file: .env
     environment:
       - TZ=${TZ:-America/New_York}
       - DATA_DIR=/app/data
       - MODELS_DIR=/app/models
+      # Point to the separate voice-bridge container
       - VOICE_BRIDGE_URL=ws://voice-bridge:9876
     volumes:
       # Persistent data
