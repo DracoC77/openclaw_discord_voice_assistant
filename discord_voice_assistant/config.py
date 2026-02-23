@@ -47,6 +47,10 @@ class STTConfig:
     model_size: str = os.getenv("STT_MODEL_SIZE", "base")
     device: str = os.getenv("STT_DEVICE", "auto")
     compute_type: str = os.getenv("STT_COMPUTE_TYPE", "int8")
+    download_root: str = os.getenv(
+        "STT_DOWNLOAD_ROOT",
+        str(Path(os.getenv("MODELS_DIR", "models")) / "whisper"),
+    )
 
 
 @dataclass(frozen=True)

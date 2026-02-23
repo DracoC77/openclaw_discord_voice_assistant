@@ -27,12 +27,8 @@ class SpeechToText:
     def _get_model(self):
         """Lazy-load the Whisper model."""
         if self._model is None:
-            log.info(
-                "Loading Faster Whisper model: %s (device=%s, compute=%s)",
-                self.config.model_size,
-                self.config.device,
-                self.config.compute_type,
-            )
+            from pathlib import Path
+
             from faster_whisper import WhisperModel
 
             device = self.config.device
@@ -43,13 +39,43 @@ class SpeechToText:
                 except ImportError:
                     device = "cpu"
 
+            download_root = self.config.download_root
+            Path(download_root).mkdir(parents=True, exist_ok=True)
+
+            # Check if model is already cached locally to skip HuggingFace
+            # API round-trips (~2-3s of network overhead on every load).
+            local_files_only = self._model_cached_locally(download_root)
+
+            log.info(
+                "Loading Faster Whisper model: %s (device=%s, compute=%s, cached=%s)",
+                self.config.model_size,
+                device,
+                self.config.compute_type,
+                local_files_only,
+            )
+
             self._model = WhisperModel(
                 self.config.model_size,
                 device=device,
                 compute_type=self.config.compute_type,
+                download_root=download_root,
+                local_files_only=local_files_only,
             )
             log.info("Whisper model loaded successfully")
         return self._model
+
+    def _model_cached_locally(self, download_root: str) -> bool:
+        """Check if the Whisper model files already exist in the cache."""
+        from pathlib import Path
+
+        cache_dir = Path(download_root)
+        # faster-whisper stores models in subdirectories named after the model.
+        # The model is ready when the model.bin file exists.
+        for model_dir in cache_dir.iterdir() if cache_dir.exists() else []:
+            if model_dir.is_dir() and (model_dir / "model.bin").exists():
+                if self.config.model_size in model_dir.name:
+                    return True
+        return False
 
     async def warm_up(self) -> None:
         """Pre-load the Whisper model so the first transcription isn't delayed."""
