@@ -180,7 +180,9 @@ class VoiceSession:
         self._session_id = await self._openclaw.create_session(
             context=f"discord:voice:{self.guild.id}:{self.channel.id}"
         )
-        await self._openclaw.reset_session(self._session_id)
+        # Compact (summarize) the existing context rather than wiping it.
+        # Users can explicitly /new or /compact via slash commands.
+        await self._openclaw.compact_session(self._session_id)
 
         warmup_start = time.monotonic()
         warmup_tasks = [
