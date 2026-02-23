@@ -150,6 +150,16 @@
     Required="false"
     Mask="false"/>
   <Config
+    Name="STT Preload"
+    Target="STT_PRELOAD"
+    Default="true"
+    Mode=""
+    Description="Keep Whisper model in memory between voice sessions (true/false). When true, rejoins are instant. When false, saves memory when idle but adds a delay when joining voice."
+    Type="Variable"
+    Display="always"
+    Required="false"
+    Mask="false"/>
+  <Config
     Name="Wake Word Enabled"
     Target="WAKE_WORD_ENABLED"
     Default="false"

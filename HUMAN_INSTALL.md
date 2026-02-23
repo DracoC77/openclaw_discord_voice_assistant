@@ -289,6 +289,7 @@ These go in `/mnt/user/appdata/discord-voice-assistant/.env`:
 | `STT_MODEL_SIZE` | `base` | Speech-to-text model: `tiny`, `base`, `small`, `medium`, `large-v3` |
 | `STT_DEVICE` | `auto` | Whisper device: `cpu`, `cuda`, `auto` |
 | `STT_COMPUTE_TYPE` | `int8` | Whisper quantization: `int8`, `float16`, `float32` |
+| `STT_PRELOAD` | `true` | Keep Whisper model loaded between sessions (instant rejoins) |
 | `TTS_PROVIDER` | `local` | `local` (free, runs on CPU) or `elevenlabs` (paid, better quality) |
 | `LOCAL_TTS_MODEL` | `en_US-hfc_male-medium` | Piper voice model (auto-downloads from HuggingFace) |
 | `ELEVENLABS_API_KEY` | *(empty)* | ElevenLabs API key (required if TTS_PROVIDER=elevenlabs) |

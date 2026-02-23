@@ -51,6 +51,7 @@ class STTConfig:
         "STT_DOWNLOAD_ROOT",
         str(Path(os.getenv("MODELS_DIR", "models")) / "whisper"),
     )
+    preload: bool = _bool(os.getenv("STT_PRELOAD", "true"))
 
 
 @dataclass(frozen=True)

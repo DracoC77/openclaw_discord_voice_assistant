@@ -167,6 +167,8 @@ Transcription uses [Faster Whisper](https://github.com/SYSTRAN/faster-whisper), 
 
 Set `STT_DEVICE=cuda` for GPU acceleration (requires NVIDIA GPU + CUDA). The default `auto` detects CUDA availability and falls back to CPU. Quantization via `STT_COMPUTE_TYPE` (`int8`, `float16`, `float32`) trades accuracy for speed — `int8` (default) is fastest on CPU.
 
+By default (`STT_PRELOAD=true`), the Whisper model is loaded once at startup and kept in memory across voice sessions. This means rejoins are instant — no 10-second model reload. Set `STT_PRELOAD=false` if you prefer to free memory when the bot is idle (the model will be loaded on-demand when someone joins voice).
+
 The bot includes built-in VAD (voice activity detection) that waits for 500ms of silence before sending audio to Whisper, and discards clips shorter than 1 second.
 
 ### Inactivity Timeout
@@ -373,6 +375,7 @@ See [`.env.example`](.env.example) for all available options with comments.
 | `STT_MODEL_SIZE` | No | `base` | Whisper model: `tiny`, `base`, `small`, `medium`, `large-v2`, `large-v3` |
 | `STT_DEVICE` | No | `auto` | Inference device: `cpu`, `cuda`, `auto` |
 | `STT_COMPUTE_TYPE` | No | `int8` | Quantization: `int8`, `float16`, `float32` |
+| `STT_PRELOAD` | No | `true` | Keep Whisper model in memory between sessions (instant rejoins) |
 
 ### Text-to-Speech
 
