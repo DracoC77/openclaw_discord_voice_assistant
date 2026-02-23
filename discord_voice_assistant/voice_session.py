@@ -410,7 +410,7 @@ class VoiceSession:
             llm_elapsed = time.monotonic() - llm_start
 
             if not response:
-                log.warning("OpenClaw returned empty response for %r (%.3fs)", text[:80], llm_elapsed)
+                log.warning("OpenClaw returned empty response for %r (%.3fs)", text[:200], llm_elapsed)
                 return
 
             log.info("[Assistant] %s", response)
@@ -436,7 +436,7 @@ class VoiceSession:
         synth_start = time.monotonic()
         audio_bytes = await self._tts.synthesize(text)
         if not audio_bytes:
-            log.warning("TTS returned no audio for: %s", text[:80])
+            log.warning("TTS returned no audio for: %s", text[:200])
             return
 
         log.debug(

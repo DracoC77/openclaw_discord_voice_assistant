@@ -156,7 +156,7 @@ class OpenClawClient:
             url = f"{self.base_url}/v1/chat/completions"
             log.debug(
                 "OpenClaw request: POST %s agent=%s session=%s msg=%r",
-                url, self.config.agent_id, session_id, content[:100],
+                url, self.config.agent_id, session_id, content[:300],
             )
 
             t0 = time.monotonic()

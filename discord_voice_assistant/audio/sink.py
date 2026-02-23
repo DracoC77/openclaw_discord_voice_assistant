@@ -29,8 +29,8 @@ CHUNK_DURATION = 3.0
 SILENCE_THRESHOLD = 300
 # How long to wait after speech stops before processing (voice activity detection)
 VAD_SILENCE_DURATION = 1.0
-# Maximum buffer size per user (bytes) — ~30s of 48kHz stereo 16-bit audio
-MAX_BUFFER_SIZE = DISCORD_SAMPLE_RATE * 2 * 2 * 30  # ~5.76 MB
+# Maximum buffer size per user (bytes) — ~120s of 48kHz stereo 16-bit audio
+MAX_BUFFER_SIZE = DISCORD_SAMPLE_RATE * 2 * 2 * 120  # ~23 MB
 
 
 class StreamingSink:

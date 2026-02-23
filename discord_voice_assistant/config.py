@@ -62,7 +62,7 @@ class ThinkingSoundConfig:
     tone2_hz: float = float(os.getenv("THINKING_TONE2_HZ", "130"))
     tone_mix: float = float(os.getenv("THINKING_TONE_MIX", "0.7"))
     pulse_hz: float = float(os.getenv("THINKING_PULSE_HZ", "0.3"))
-    volume: float = float(os.getenv("THINKING_VOLUME", "0.2"))
+    volume: float = float(os.getenv("THINKING_VOLUME", "0.4"))
     duration: float = float(os.getenv("THINKING_DURATION", "2.5"))
 
 
