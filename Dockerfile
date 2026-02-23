@@ -20,7 +20,20 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 RUN pip install --no-cache-dir .
 
-# ---- Runtime stage: slim image with only what's needed ----
+# ---- Node.js build stage: install voice bridge dependencies ----
+FROM node:20-slim AS node-builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    make \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /bridge
+COPY voice_bridge/package.json .
+RUN npm install --omit=dev
+
+# ---- Runtime stage: slim image with both Python and Node.js ----
 FROM python:3.11-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -29,7 +42,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     espeak-ng \
     libsndfile1 \
     gosu \
+    curl \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js runtime (no build tools needed, native modules are pre-compiled)
+COPY --from=node-builder /usr/local/bin/node /usr/local/bin/node
+COPY --from=node-builder /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm
 
 WORKDIR /app
 
@@ -41,6 +60,11 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 RUN ldconfig /usr/local/lib/python3.11/site-packages/piper_phonemize.libs 2>/dev/null; \
     ldconfig /usr/local/lib/python3.11/site-packages/onnxruntime/capi 2>/dev/null; \
     ldconfig
+
+# Copy voice bridge (pre-compiled native modules from node-builder)
+COPY --from=node-builder /bridge/node_modules /app/voice_bridge/node_modules
+COPY voice_bridge/src /app/voice_bridge/src
+COPY voice_bridge/package.json /app/voice_bridge/package.json
 
 # Copy application code
 COPY . .
@@ -71,4 +95,4 @@ ENV MODELS_DIR=/app/models
 VOLUME ["/app/data", "/app/models", "/app/logs"]
 
 ENTRYPOINT ["docker-entrypoint.sh"]
-CMD ["python", "-m", "discord_voice_assistant.main"]
+CMD ["start-all"]

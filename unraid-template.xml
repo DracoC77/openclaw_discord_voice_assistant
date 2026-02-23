@@ -13,7 +13,8 @@
     Discord Voice Assistant for OpenClaw.
     Joins Discord voice channels, listens for voice commands,
     communicates with your OpenClaw AI agent, and speaks responses back.
-    Supports wake word detection, speaker identification, and auto-join behavior.
+    Supports wake word detection, auto-join behavior, and Discord DAVE E2EE
+    via an embedded Node.js voice bridge.
   </Overview>
   <Category>Tools: AI</Category>
   <WebUI/>
@@ -224,6 +225,26 @@
     Default="true"
     Mode=""
     Description="Require wake word from non-authorized users (true/false). Only relevant when wake word is enabled."
+    Type="Variable"
+    Display="advanced"
+    Required="false"
+    Mask="false"/>
+  <Config
+    Name="Voice Bridge URL"
+    Target="VOICE_BRIDGE_URL"
+    Default="ws://localhost:9876"
+    Mode=""
+    Description="WebSocket URL for the Node.js voice bridge. Default (ws://localhost:9876) uses the embedded bridge. Change to ws://voice-bridge:9876 only if running as separate containers."
+    Type="Variable"
+    Display="advanced"
+    Required="false"
+    Mask="false"/>
+  <Config
+    Name="Voice Bridge Port"
+    Target="BRIDGE_PORT"
+    Default="9876"
+    Mode=""
+    Description="Port for the embedded voice bridge WebSocket server."
     Type="Variable"
     Display="advanced"
     Required="false"
