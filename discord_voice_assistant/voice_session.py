@@ -27,9 +27,13 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 # Matches sentence-ending punctuation followed by whitespace (or end of string).
-# Negative lookbehinds avoid splitting on abbreviations and decimal numbers.
+# Separate fixed-width negative lookbehinds avoid splitting on common
+# abbreviations and decimal numbers.  Python's `re` module requires each
+# lookbehind branch to have a fixed width, so we list them individually
+# grouped by character length rather than using a single alternation.
 _SENTENCE_END_RE = re.compile(
-    r"(?<!\b(?:Mr|Mrs|Ms|Dr|Jr|Sr|St|vs|etc|inc|ltd|co))"
+    r"(?<!Mr)(?<!Ms)(?<!Dr)(?<!Jr)(?<!Sr)(?<!St)(?<!vs)(?<!co)"  # 2-char abbrevs
+    r"(?<!Mrs)(?<!etc)(?<!inc)(?<!ltd)"                           # 3-char abbrevs
     r"(?<!\d)"       # not after a digit (avoids "3.14 ...")
     r"[.!?]"         # sentence-ending punctuation
     r"(?:\s|$)",      # followed by whitespace or end-of-string
