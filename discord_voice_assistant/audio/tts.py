@@ -237,7 +237,7 @@ class TextToSpeech:
             return None
         log.debug(
             "TTS cleaned text (%d -> %d chars): %r",
-            original_len, len(text), text[:100],
+            original_len, len(text), text[:300],
         )
 
         try:
@@ -255,7 +255,7 @@ class TextToSpeech:
             else:
                 log.warning(
                     "TTS synthesis returned no audio: provider=%s, %.3fs, text=%r",
-                    self.config.provider, elapsed, text[:80],
+                    self.config.provider, elapsed, text[:300],
                 )
             return result
         except Exception:
