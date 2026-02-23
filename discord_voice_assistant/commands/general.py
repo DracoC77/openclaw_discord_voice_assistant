@@ -167,7 +167,9 @@ class GeneralCommands(commands.Cog):
                 f"`/leave` - Make {name} leave the voice channel\n"
                 "`/rejoin` - Rejoin after inactivity disconnect\n"
                 "`/voice-status` - Show voice session details\n"
-                "`/timeout <seconds>` - Set inactivity timeout"
+                "`/timeout <seconds>` - Set inactivity timeout\n"
+                "`/new` - Start a fresh conversation\n"
+                "`/compact` - Summarize conversation to free context"
             ),
             inline=False,
         )

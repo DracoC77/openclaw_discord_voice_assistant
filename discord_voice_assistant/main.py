@@ -47,7 +47,7 @@ def main() -> None:
             log.error("Config error: %s", err)
         sys.exit(1)
 
-    log.info("Starting Discord Voice Assistant v%s", "0.1.0")
+    log.info("Starting Discord Voice Assistant v%s", "0.2.0")
     if config.debug_voice:
         log.info("Voice pipeline verbose logging ENABLED (DEBUG_VOICE_PIPELINE=true)")
     log.info("Features: wake_word=%s", config.wake_word.enabled)

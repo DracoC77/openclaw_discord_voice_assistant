@@ -1,6 +1,6 @@
 {
   "name": "openclaw-voice-bridge",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Node.js voice bridge for DAVE E2EE support",
   "main": "src/index.js",
   "scripts": {
