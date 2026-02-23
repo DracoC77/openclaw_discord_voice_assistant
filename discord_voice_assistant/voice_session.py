@@ -55,6 +55,15 @@ class _BridgeVoiceProtocol(discord.VoiceProtocol):
         self._voice_state_event.set()
 
     async def connect(self, *, timeout: float, reconnect: bool, **kwargs) -> None:
+        # Send Gateway OP 4 to tell Discord we want to join this voice channel.
+        # This triggers VOICE_STATE_UPDATE and VOICE_SERVER_UPDATE events back
+        # from the gateway, which discord.py routes to our on_voice_* methods.
+        # Without this, Discord never knows we're joining and the events never arrive.
+        await self.channel.guild.change_voice_state(
+            channel=self.channel,
+            self_deaf=kwargs.get('self_deaf', False),
+            self_mute=kwargs.get('self_mute', False),
+        )
         try:
             async with asyncio.timeout(timeout):
                 await self._voice_server_event.wait()

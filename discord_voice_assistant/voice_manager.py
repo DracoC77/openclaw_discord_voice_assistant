@@ -71,8 +71,8 @@ class VoiceManager:
         """Attempt to join a voice channel where an authorized user is."""
         guild_id = member.guild.id
 
-        # Already in a session in this guild
-        if guild_id in self._sessions and self._sessions[guild_id].is_active:
+        # Already in a session in this guild (or join in progress)
+        if guild_id in self._sessions:
             session = self._sessions[guild_id]
             # If we're in a different channel, move to the authorized user's channel
             if session.voice_client and session.voice_client.channel != channel:
