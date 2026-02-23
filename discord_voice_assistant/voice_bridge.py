@@ -81,12 +81,21 @@ class VoiceBridgeClient:
         """Connection loop with exponential backoff reconnection."""
         while True:
             try:
-                log.info("Connecting to voice bridge at %s", self.url)
+                if self._reconnect_attempts == 0:
+                    log.info("Connecting to voice bridge at %s", self.url)
+                else:
+                    log.debug("Connecting to voice bridge at %s", self.url)
                 async with websockets.connect(self.url) as ws:
                     self._ws = ws
                     self._connected.set()
+                    if self._reconnect_attempts > 0:
+                        log.info(
+                            "Voice bridge reconnected after %d attempts",
+                            self._reconnect_attempts,
+                        )
+                    else:
+                        log.info("Connected to voice bridge")
                     self._reconnect_attempts = 0
-                    log.info("Connected to voice bridge")
                     async for raw in ws:
                         try:
                             msg = json.loads(raw)
@@ -95,7 +104,7 @@ class VoiceBridgeClient:
                             log.warning("Invalid JSON from bridge: %s", raw[:200])
             except asyncio.CancelledError:
                 raise
-            except Exception:
+            except Exception as exc:
                 self._connected.clear()
                 self._ws = None
                 delay = min(
@@ -103,10 +112,17 @@ class VoiceBridgeClient:
                     self._RECONNECT_MAX,
                 )
                 self._reconnect_attempts += 1
-                log.warning(
-                    "Voice bridge connection lost, reconnecting in %.0fs (attempt %d)...",
-                    delay, self._reconnect_attempts, exc_info=True,
-                )
+                # Log concisely: full traceback only on first failure, then just the message
+                if self._reconnect_attempts == 1:
+                    log.warning(
+                        "Voice bridge connection failed: %s — retrying in %.0fs",
+                        exc, delay,
+                    )
+                else:
+                    log.debug(
+                        "Voice bridge reconnect attempt %d failed: %s — retrying in %.0fs",
+                        self._reconnect_attempts, exc, delay,
+                    )
                 await asyncio.sleep(delay)
 
     async def _handle_message(self, msg: dict) -> None:
