@@ -30,11 +30,16 @@ AudioCallback = Callable[[int, bytes, str], Awaitable[None]]
 class VoiceBridgeClient:
     """Manages the WebSocket connection to the Node.js voice bridge."""
 
+    # Reconnection backoff parameters
+    _RECONNECT_BASE = 2.0
+    _RECONNECT_MAX = 60.0
+
     def __init__(self, url: str) -> None:
         self.url = url
         self._ws: ClientConnection | None = None
         self._connected = asyncio.Event()
         self._task: asyncio.Task | None = None
+        self._reconnect_attempts = 0
         # guild_id -> callback for incoming audio
         self._audio_callbacks: dict[str, AudioCallback] = {}
         # guild_id -> asyncio.Event for ready signal
@@ -73,13 +78,14 @@ class VoiceBridgeClient:
         return self._connected.is_set()
 
     async def _run(self) -> None:
-        """Connection loop with automatic reconnection."""
+        """Connection loop with exponential backoff reconnection."""
         while True:
             try:
                 log.info("Connecting to voice bridge at %s", self.url)
                 async with websockets.connect(self.url) as ws:
                     self._ws = ws
                     self._connected.set()
+                    self._reconnect_attempts = 0
                     log.info("Connected to voice bridge")
                     async for raw in ws:
                         try:
@@ -90,10 +96,18 @@ class VoiceBridgeClient:
             except asyncio.CancelledError:
                 raise
             except Exception:
-                log.warning("Voice bridge connection lost, reconnecting in 2s...", exc_info=True)
                 self._connected.clear()
                 self._ws = None
-                await asyncio.sleep(2)
+                delay = min(
+                    self._RECONNECT_BASE * (2 ** self._reconnect_attempts),
+                    self._RECONNECT_MAX,
+                )
+                self._reconnect_attempts += 1
+                log.warning(
+                    "Voice bridge connection lost, reconnecting in %.0fs (attempt %d)...",
+                    delay, self._reconnect_attempts, exc_info=True,
+                )
+                await asyncio.sleep(delay)
 
     async def _handle_message(self, msg: dict) -> None:
         """Route incoming messages from the bridge."""
@@ -135,9 +149,13 @@ class VoiceBridgeClient:
             log.error("Bridge error for guild %s: %s", guild_id, msg.get("message"))
 
     async def send(self, msg: dict) -> None:
-        """Send a JSON message to the bridge."""
-        if self._ws:
-            await self._ws.send(json.dumps(msg))
+        """Send a JSON message to the bridge.
+
+        Raises ConnectionError if the bridge is not connected.
+        """
+        if not self._ws:
+            raise ConnectionError("Voice bridge is not connected")
+        await self._ws.send(json.dumps(msg))
 
     def register_audio_callback(self, guild_id: str, callback: AudioCallback) -> None:
         """Register a callback for incoming audio for a guild."""
@@ -222,12 +240,22 @@ class VoiceBridgeClient:
         await self.send({"op": "stop", "guild_id": guild_id})
 
     async def disconnect(self, guild_id: str) -> None:
-        """Disconnect from voice in a guild."""
+        """Disconnect from voice in a guild and clean up all state."""
         self._audio_callbacks.pop(guild_id, None)
         self._ready_events.pop(guild_id, None)
         self._play_done_events.pop(guild_id, None)
-        await self.send({"op": "disconnect", "guild_id": guild_id})
+        self._disconnect_events.pop(guild_id, None)
+        self._dave_status.pop(guild_id, None)
+        try:
+            await self.send({"op": "disconnect", "guild_id": guild_id})
+        except ConnectionError:
+            log.debug("Bridge not connected, skipping disconnect message")
 
     def is_dave_active(self, guild_id: str) -> bool:
         """Check if DAVE E2EE is active for a guild."""
         return self._dave_status.get(guild_id, False)
+
+    @property
+    def reconnect_attempts(self) -> int:
+        """Number of consecutive reconnection attempts (0 when connected)."""
+        return self._reconnect_attempts

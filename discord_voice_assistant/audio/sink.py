@@ -25,6 +25,8 @@ CHUNK_DURATION = 3.0
 SILENCE_THRESHOLD = 300
 # How long to wait after speech stops before processing (voice activity detection)
 VAD_SILENCE_DURATION = 1.0
+# Maximum buffer size per user (bytes) — ~30s of 48kHz stereo 16-bit audio
+MAX_BUFFER_SIZE = DISCORD_SAMPLE_RATE * 2 * 2 * 30  # ~5.76 MB
 
 
 class StreamingSink:
@@ -81,6 +83,20 @@ class StreamingSink:
                 )
             self._speaking[user_id] = True
             self._last_speech[user_id] = time.monotonic()
+
+            # Protect against unbounded buffer growth
+            if len(self._buffers[user_id]) + len(pcm) > MAX_BUFFER_SIZE:
+                log.warning(
+                    "Buffer overflow for user %d (%d bytes), flushing",
+                    user_id, len(self._buffers[user_id]),
+                )
+                self._speaking[user_id] = False
+                self._cancel_silence_task(user_id)
+                task = self._loop.create_task(self._flush_buffer(user_id))
+                self._pipeline_tasks.add(task)
+                task.add_done_callback(self._pipeline_tasks.discard)
+                return
+
             self._buffers[user_id].extend(pcm)
             log.debug(
                 "Audio buffered user=%d rms=%.0f buf=%d bytes",
@@ -171,8 +187,10 @@ class StreamingSink:
 
         audio_duration = len(mono_16k) / (TARGET_SAMPLE_RATE * 2)  # 16-bit = 2 bytes/sample
 
-        # Minimum audio length check (~0.5s at 16kHz)
-        if len(mono_16k) < TARGET_SAMPLE_RATE:
+        # Minimum audio length check: require at least 0.5s of audio
+        # 16-bit audio = 2 bytes per sample, so 0.5s = sample_rate * 2 * 0.5
+        min_bytes = TARGET_SAMPLE_RATE  # 16000 bytes = 8000 samples = 0.5s
+        if len(mono_16k) < min_bytes:
             log.debug(
                 "Audio too short for user %d (%.2fs), skipping", user_id, audio_duration,
             )
@@ -200,19 +218,26 @@ class StreamingSink:
 
     @staticmethod
     def _downsample(raw_pcm: bytes) -> bytes:
-        """Convert 48kHz stereo 16-bit PCM to 16kHz mono 16-bit PCM."""
+        """Convert 48kHz stereo 16-bit PCM to 16kHz mono 16-bit PCM.
+
+        Uses a simple low-pass averaging filter before decimation to reduce
+        aliasing artifacts, which is important for speech quality.
+        """
         samples = np.frombuffer(raw_pcm, dtype=np.int16)
 
         # Stereo to mono: average pairs of samples
         if len(samples) % 2 == 0:
             stereo = samples.reshape(-1, 2)
-            mono = stereo.mean(axis=1).astype(np.int16)
+            mono = stereo.mean(axis=1).astype(np.float32)
         else:
-            mono = samples
+            mono = samples.astype(np.float32)
 
-        # Downsample 48kHz -> 16kHz (factor of 3)
-        # Simple decimation (take every 3rd sample) - works well for speech
-        mono_16k = mono[::3]
+        # Downsample 48kHz -> 16kHz (factor of 3) with anti-aliasing.
+        # Average groups of 3 samples instead of naive decimation to act
+        # as a simple low-pass filter and reduce aliasing.
+        trim = len(mono) - (len(mono) % 3)
+        mono = mono[:trim]
+        mono_16k = mono.reshape(-1, 3).mean(axis=1).astype(np.int16)
 
         return mono_16k.tobytes()
 

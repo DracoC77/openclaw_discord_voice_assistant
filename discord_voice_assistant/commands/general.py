@@ -29,15 +29,21 @@ class GeneralCommands(commands.Cog):
     @app_commands.command(name="status", description="Show the voice assistant's current status")
     async def status(self, interaction: discord.Interaction) -> None:
         vm = self.bot.voice_manager
-        sessions = len(vm._sessions)
+        bridge = self.bot.bridge
+        session_count = vm.session_count
         authorized = len(self.bot.config.auth.authorized_user_ids)
         name = self.bot.config.discord.bot_name
 
         embed = discord.Embed(
             title=f"{name} Status",
-            color=discord.Color.green() if sessions > 0 else discord.Color.greyple(),
+            color=discord.Color.green() if session_count > 0 else discord.Color.greyple(),
         )
-        embed.add_field(name="Active Voice Sessions", value=str(sessions), inline=True)
+        embed.add_field(name="Active Voice Sessions", value=str(session_count), inline=True)
+        embed.add_field(
+            name="Voice Bridge",
+            value="Connected" if bridge.is_connected else "Disconnected",
+            inline=True,
+        )
         embed.add_field(
             name="Auto-Join", value="Enabled" if self.bot.config.voice.auto_join else "Disabled", inline=True
         )
@@ -64,9 +70,10 @@ class GeneralCommands(commands.Cog):
         )
 
         # Show current voice sessions
-        if vm._sessions:
+        active = vm.active_sessions
+        if active:
             session_info = []
-            for gid, session in vm._sessions.items():
+            for gid, session in active.items():
                 ch_name = session.channel.name if session.channel else "Unknown"
                 session_info.append(f"#{ch_name}")
             embed.add_field(

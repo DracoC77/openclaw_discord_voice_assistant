@@ -12,6 +12,7 @@
  *   Node sends: decoded PCM audio per user, ready/error/disconnect events
  */
 
+const http = require('http');
 const { WebSocketServer, WebSocket } = require('ws');
 const {
   joinVoiceChannel,
@@ -28,6 +29,7 @@ const { PassThrough, Readable } = require('stream');
 const { OpusEncoder } = require('@discordjs/opus');
 
 const PORT = parseInt(process.env.BRIDGE_PORT || '9876', 10);
+const HEALTH_PORT = parseInt(process.env.HEALTH_PORT || '9877', 10);
 const LOG_LEVEL = process.env.LOG_LEVEL || 'INFO';
 
 // Simple logger
@@ -56,11 +58,13 @@ class GuildVoiceConnection {
     this.connection = null;
     this.player = null;
     this.receiver = null;
-    this.listeningStreams = new Map(); // ssrc -> stream
+    this.listeningStreams = new Map(); // userId -> stream
     this.userSsrcMap = new Map(); // ssrc -> userId
 
     // Adapter methods will be set when creating the connection
     this._adapterMethods = null;
+    // Queue for voice credentials arriving before adapter is ready
+    this._pendingUpdates = [];
   }
 
   /**
@@ -81,6 +85,17 @@ class GuildVoiceConnection {
       adapterCreator: (methods) => {
         // Store adapter methods so we can feed voice data from Python
         self._adapterMethods = methods;
+
+        // Replay any queued updates that arrived before adapter was ready
+        for (const pending of self._pendingUpdates) {
+          if (pending.type === 'voice_server_update') {
+            methods.onVoiceServerUpdate(pending.data);
+          } else if (pending.type === 'voice_state_update') {
+            methods.onVoiceStateUpdate(pending.data);
+          }
+        }
+        self._pendingUpdates = [];
+
         return {
           sendPayload: (payload) => {
             // The Python bot already sent the gateway opcode 4 (voice state update).
@@ -156,10 +171,12 @@ class GuildVoiceConnection {
 
   /**
    * Feed voice server update data from the Python bot into the adapter.
+   * If the adapter isn't ready yet, queues the update for replay.
    */
   onVoiceServerUpdate(data) {
     if (!this._adapterMethods) {
-      log('WARNING', 'No adapter methods available for voice_server_update');
+      log('INFO', 'Adapter not ready, queuing voice_server_update');
+      this._pendingUpdates.push({ type: 'voice_server_update', data });
       return;
     }
     log('DEBUG', `Feeding voice_server_update: guild=${this.guildId} endpoint=${data.endpoint}`);
@@ -172,10 +189,12 @@ class GuildVoiceConnection {
 
   /**
    * Feed voice state update data from the Python bot into the adapter.
+   * If the adapter isn't ready yet, queues the update for replay.
    */
   onVoiceStateUpdate(data) {
     if (!this._adapterMethods) {
-      log('WARNING', 'No adapter methods available for voice_state_update');
+      log('INFO', 'Adapter not ready, queuing voice_state_update');
+      this._pendingUpdates.push({ type: 'voice_state_update', data });
       return;
     }
     log('DEBUG', `Feeding voice_state_update: guild=${this.guildId} session=${data.session_id}`);
@@ -207,6 +226,10 @@ class GuildVoiceConnection {
           duration: 1000,
         },
       });
+
+      // Store the stream reference BEFORE attaching event listeners
+      // to prevent leaks if an error occurs during setup.
+      this.listeningStreams.set(userId, opusStream);
 
       // Decode opus to PCM (48kHz, stereo, 16-bit)
       const encoder = new OpusEncoder(48000, 2);
@@ -243,8 +266,6 @@ class GuildVoiceConnection {
         log('ERROR', `Opus stream error for user ${userId}: ${err.message}`);
         this.listeningStreams.delete(userId);
       });
-
-      this.listeningStreams.set(userId, opusStream);
     });
   }
 
@@ -297,6 +318,7 @@ class GuildVoiceConnection {
       stream.destroy();
     }
     this.listeningStreams.clear();
+    this._pendingUpdates = [];
 
     if (this.player) {
       this.player.stop();
@@ -317,11 +339,13 @@ class GuildVoiceConnection {
  * Main WebSocket server that handles communication with the Python bot.
  */
 class VoiceBridge {
-  constructor(port) {
+  constructor(port, healthPort) {
     this.port = port;
+    this.healthPort = healthPort;
     this.guilds = new Map(); // guildId -> GuildVoiceConnection
     this.ws = null;
     this.wss = null;
+    this.healthServer = null;
   }
 
   start() {
@@ -355,11 +379,32 @@ class VoiceBridge {
         log('ERROR', `WebSocket error: ${err.message}`);
       });
     });
+
+    // Start HTTP health check server
+    this.healthServer = http.createServer((req, res) => {
+      if (req.url === '/health') {
+        const status = {
+          status: 'ok',
+          ws_connected: this.ws !== null && this.ws.readyState === WebSocket.OPEN,
+          active_guilds: this.guilds.size,
+        };
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(status));
+      } else {
+        res.writeHead(404);
+        res.end();
+      }
+    });
+    this.healthServer.listen(this.healthPort, () => {
+      log('INFO', `Health check server listening on port ${this.healthPort}`);
+    });
   }
 
   _send(msg) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(msg));
+    } else {
+      log('WARNING', `Cannot send message (op=${msg.op}): WebSocket not connected`);
     }
   }
 
@@ -455,27 +500,30 @@ class VoiceBridge {
       this.guilds.delete(guild_id);
     }
   }
+
+  shutdown() {
+    for (const [, conn] of this.guilds) {
+      conn.destroy();
+    }
+    this.guilds.clear();
+    this.wss?.close();
+    this.healthServer?.close();
+  }
 }
 
 // Start the bridge
-const bridge = new VoiceBridge(PORT);
+const bridge = new VoiceBridge(PORT, HEALTH_PORT);
 bridge.start();
 
 // Graceful shutdown
 process.on('SIGINT', () => {
   log('INFO', 'Shutting down...');
-  for (const [, conn] of bridge.guilds) {
-    conn.destroy();
-  }
-  bridge.wss?.close();
+  bridge.shutdown();
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
   log('INFO', 'Shutting down...');
-  for (const [, conn] of bridge.guilds) {
-    conn.destroy();
-  }
-  bridge.wss?.close();
+  bridge.shutdown();
   process.exit(0);
 });
