@@ -43,7 +43,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /bridge
 COPY voice_bridge/package.json .
-RUN npm install --omit=dev
+# GCC 14 (in newer Debian) promotes -Wincompatible-pointer-types to an error,
+# which breaks the bundled opus C source in @discordjs/opus v0.9.0.
+# Downgrade it back to a warning so the native addon compiles.
+RUN CFLAGS="-Wno-error=incompatible-pointer-types" npm install --omit=dev
 
 # ---- Runtime stage: slim image with both Python and Node.js ----
 FROM python:3.11-slim
