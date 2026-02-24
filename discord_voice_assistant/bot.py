@@ -62,6 +62,27 @@ class VoiceAssistantBot(commands.Bot):
         log.info("Logged in as %s (ID: %s)", self.user, self.user.id)
         log.info("Connected to %d guild(s)", len(self.guilds))
 
+        # Auto-bootstrap: if the auth store is empty, add the application owner
+        # as an admin so the bot is immediately usable (solves the chicken-and-egg
+        # problem where no one is authorized and no one can authorize themselves).
+        if self.auth_store.user_count == 0:
+            try:
+                app_info = await self.application_info()
+                owner_id = app_info.owner.id
+                self.auth_store.add_user(owner_id, role="admin", added_by="auto_owner")
+                log.info(
+                    "Auto-added application owner %s (%s) as admin "
+                    "(auth store was empty)",
+                    app_info.owner, owner_id,
+                )
+            except Exception:
+                log.warning(
+                    "Could not auto-add application owner — auth store remains "
+                    "empty (all users rejected). Use /voice-add as bot owner "
+                    "to bootstrap.",
+                    exc_info=True,
+                )
+
         # Connect to the Node.js voice bridge
         await self.bridge.start()
         try:
