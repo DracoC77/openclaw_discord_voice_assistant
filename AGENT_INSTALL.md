@@ -93,7 +93,7 @@ OPENCLAW_API_KEY=<your-gateway-auth-token>
 
 Optional but recommended:
 ```
-BOT_NAME=Clippy
+BOT_NAME=OpenClaw
 OPENCLAW_AGENT_ID=voice
 AUTHORIZED_USER_IDS=<comma-separated-discord-user-ids>
 ADMIN_USER_IDS=<comma-separated-admin-discord-user-ids>
@@ -359,7 +359,7 @@ docker compose up -d
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `DISCORD_BOT_TOKEN` | Yes | — | Discord bot token |
-| `BOT_NAME` | No | `Clippy` | Display name in responses |
+| `BOT_NAME` | No | `OpenClaw` | Display name in responses |
 | `OPENCLAW_URL` | Yes | `http://localhost:18789` | OpenClaw Gateway URL |
 | `OPENCLAW_API_KEY` | Recommended | — | Gateway auth token (matches `OPENCLAW_GATEWAY_TOKEN`) |
 | `OPENCLAW_AGENT_ID` | Recommended | `voice` | Voice agent ID (see [voice agent setup](#3-create-a-dedicated-voice-agent-recommended)) |
@@ -416,7 +416,7 @@ services:
       - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
       - OPENCLAW_URL=http://openclaw:18789
       - OPENCLAW_API_KEY=${OPENCLAW_GATEWAY_TOKEN}
-      - BOT_NAME=${BOT_NAME:-Clippy}
+      - BOT_NAME=${BOT_NAME:-OpenClaw}
       - AUTHORIZED_USER_IDS=${AUTHORIZED_USER_IDS:-}
       - STT_MODEL_SIZE=${STT_MODEL_SIZE:-base}
       - TTS_PROVIDER=${TTS_PROVIDER:-local}
