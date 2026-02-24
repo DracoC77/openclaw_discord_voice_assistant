@@ -6,6 +6,13 @@ version: "3.8"
 #
 # For Unraid / single-container deployments, use the Docker image directly
 # (it embeds the voice bridge). See unraid-template.xml.
+#
+# Multiple instances on the same machine:
+#   Each instance needs its own project name, .env, and data directories.
+#   Run from separate directories or use -p to set a project name:
+#     docker compose -p bot1 --env-file bot1.env up -d
+#     docker compose -p bot2 --env-file bot2.env up -d
+#   Each .env must have a unique DISCORD_BOT_TOKEN and OPENCLAW_URL.
 
 services:
   discord-voice-assistant:
@@ -13,11 +20,10 @@ services:
     image: ghcr.io/dracoc77/openclaw_discord_voice_assistant:latest
     # Or build locally by uncommenting the next line:
     # build: .
-    container_name: discord-voice-assistant
     restart: unless-stopped
     # In two-container mode, run only the Python bot (not the embedded bridge)
     command: ["python", "-m", "discord_voice_assistant.main"]
-    env_file: .env
+    env_file: ${ENV_FILE:-.env}
     environment:
       - TZ=${TZ:-America/New_York}
       - DATA_DIR=/app/data
@@ -25,12 +31,12 @@ services:
       # Point to the separate voice-bridge container
       - VOICE_BRIDGE_URL=ws://voice-bridge:9876
     volumes:
-      # Persistent data
-      - ./data:/app/data
+      # Persistent data (override DATA_PATH for multi-instance)
+      - ${DATA_PATH:-./data}:/app/data
       # Model cache (Whisper models, wake word models, TTS models)
-      - ./models:/app/models
+      - ${MODELS_PATH:-./models}:/app/models
       # Logs
-      - ./logs:/app/logs
+      - ${LOGS_PATH:-./logs}:/app/logs
     # For Unraid, these paths map to /mnt/user/appdata/discord-voice-assistant/*
     # See unraid-template.xml for Unraid-specific configuration
     depends_on:
@@ -55,7 +61,6 @@ services:
 
   voice-bridge:
     build: ./voice_bridge
-    container_name: voice-bridge
     restart: unless-stopped
     environment:
       - BRIDGE_PORT=9876

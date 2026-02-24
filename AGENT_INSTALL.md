@@ -388,7 +388,6 @@ version: "3.8"
 services:
   openclaw:
     image: alpine/openclaw:latest
-    container_name: openclaw
     restart: unless-stopped
     ports:
       - "18789:18789"
@@ -403,7 +402,6 @@ services:
 
   discord-voice-assistant:
     image: ghcr.io/dracoc77/openclaw_discord_voice_assistant:latest
-    container_name: discord-voice-assistant
     restart: unless-stopped
     depends_on:
       - openclaw

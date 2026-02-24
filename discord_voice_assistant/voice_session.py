@@ -241,6 +241,7 @@ class VoiceSession:
         # Register audio callback immediately — pipeline is already warm
         self._sink = StreamingSink(self._on_audio_chunk, asyncio.get_running_loop())
         self.bridge.register_audio_callback(guild_id, self._on_bridge_audio)
+        self.bridge.register_reconnect_callback(guild_id, self._on_bridge_reconnect)
 
         log.info(
             "Voice session started in %s/%s (session: %s, DAVE: %s)",
@@ -261,12 +262,49 @@ class VoiceSession:
             return
         self._sink.process_segment(user_id, pcm)
 
+    async def _on_bridge_reconnect(self) -> None:
+        """Re-establish the voice connection after a bridge WebSocket reconnect.
+
+        When the WebSocket drops (e.g. oversized message), the Node bridge
+        destroys all voice connections.  Re-sending the join command and
+        voice credentials lets the bridge reconnect to Discord voice so the
+        session can resume transparently.
+        """
+        if not self.is_active or not self._voice_client:
+            return
+
+        guild_id = self._guild_id_str
+        voice_data = self._voice_client.voice_data
+        log.info("Bridge reconnected, re-establishing voice session for guild %s", guild_id)
+
+        try:
+            await self.bridge.join(
+                guild_id=guild_id,
+                channel_id=str(self.channel.id),
+                user_id=str(self.bot.user.id),
+                session_id=voice_data.get("session_id", ""),
+            )
+
+            if voice_data.get("voice_state"):
+                await self.bridge.send_voice_state_update(voice_data["voice_state"])
+            if voice_data.get("voice_server"):
+                await self.bridge.send_voice_server_update(voice_data["voice_server"])
+
+            ready = await self.bridge.wait_ready(guild_id, timeout=15.0)
+            if ready:
+                log.info("Voice session re-established after bridge reconnection")
+            else:
+                log.error("Failed to re-establish voice session after bridge reconnection")
+        except Exception:
+            log.exception("Error re-establishing voice session after bridge reconnection")
+
     async def stop(self) -> None:
         """Disconnect and clean up the session."""
         self.is_active = False
         guild_id = self._guild_id_str
 
         self.bridge.unregister_audio_callback(guild_id)
+        self.bridge.unregister_reconnect_callback(guild_id)
 
         if self._sink and self._sink._pipeline_tasks:
             pending = [t for t in self._sink._pipeline_tasks if not t.done()]

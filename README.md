@@ -281,6 +281,22 @@ networks:
 
 To manage both OpenClaw and the voice assistant together, see the template in [`AGENT_INSTALL.md`](AGENT_INSTALL.md#docker-compose-with-openclaw).
 
+### Multiple Instances
+
+You can run multiple voice assistants on the same machine, each pointing at a different OpenClaw gateway. Use docker compose project names (`-p`) with separate `.env` files:
+
+```bash
+# Instance 1
+docker compose -p bot1 --env-file bot1.env up -d
+
+# Instance 2
+docker compose -p bot2 --env-file bot2.env up -d
+```
+
+Each `.env` file must have a unique `DISCORD_BOT_TOKEN` and `OPENCLAW_URL`. You can optionally set `DATA_PATH`, `MODELS_PATH`, and `LOGS_PATH` to isolate storage per instance (models can be shared safely across instances).
+
+See `.env.example` for details.
+
 ### Why Not Inside the OpenClaw Container?
 
 OpenClaw runs on Node.js 22 (Debian Bookworm). It does **not** include Python, FFmpeg, or the audio libraries this bot needs. Installing them inside the OpenClaw container would:
@@ -337,9 +353,9 @@ OPENCLAW_URL=http://192.168.x.x:18789
 See [`AGENT_INSTALL.md`](AGENT_INSTALL.md#troubleshooting) for detailed troubleshooting steps, or check:
 
 ```bash
-docker logs discord-voice-assistant          # Container logs
-docker exec discord-voice-assistant ffmpeg -version  # Verify FFmpeg
-docker stats discord-voice-assistant         # Memory usage
+docker compose logs discord-voice-assistant          # Container logs
+docker compose exec discord-voice-assistant ffmpeg -version  # Verify FFmpeg
+docker compose ps                                    # Container status
 ```
 
 **Memory by STT model:** tiny ~150MB, base ~300MB, small ~600MB, medium ~1.5GB, large-v3 ~3GB
@@ -423,6 +439,14 @@ See [`.env.example`](.env.example) for all available options with comments.
 |----------|----------|---------|-------------|
 | `LOG_LEVEL` | No | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `DEBUG_VOICE_PIPELINE` | No | `false` | Verbose voice pipeline logging (timing, audio stats, RMS) |
+
+### Multi-Instance (docker compose only)
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `DATA_PATH` | No | `./data` | Host path for persistent data volume |
+| `MODELS_PATH` | No | `./models` | Host path for model cache volume (safe to share across instances) |
+| `LOGS_PATH` | No | `./logs` | Host path for log volume |
 
 ## Project Structure
 
