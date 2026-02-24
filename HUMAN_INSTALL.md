@@ -401,11 +401,35 @@ asyncio.run(test())
 ```bash
 # Check what network each container is on
 docker inspect openclaw --format '{{range $net, $conf := .NetworkSettings.Networks}}{{$net}}{{end}}'
-docker inspect discord-voice-assistant --format '{{range $net, $conf := .NetworkSettings.Networks}}{{$net}}{{end}}'
+docker compose ps --format '{{.Name}}' | head -1 | xargs docker inspect --format '{{range $net, $conf := .NetworkSettings.Networks}}{{$net}}{{end}}'
 ```
 
 If they're on different networks, add the network config to `docker-compose.yml`
 (see [Manual Setup](#option-b-manual-setup)).
+
+### Running Multiple Instances
+
+To run multiple bots on the same machine (e.g. different OpenClaw gateways or
+Discord servers), use docker compose project names with separate `.env` files:
+
+```bash
+cd /mnt/user/appdata/discord-voice-assistant
+
+# Create a .env file for each instance
+cp .env.example bot1.env   # edit: set DISCORD_BOT_TOKEN, OPENCLAW_URL, etc.
+cp .env.example bot2.env   # edit: different token and gateway URL
+
+# Start each with a unique project name
+docker compose -p bot1 --env-file bot1.env up -d
+docker compose -p bot2 --env-file bot2.env up -d
+
+# View logs for a specific instance
+docker compose -p bot1 logs -f
+```
+
+Each `.env` must have a unique `DISCORD_BOT_TOKEN` and `OPENCLAW_URL`. You can
+optionally set `DATA_PATH` and `LOGS_PATH` to keep data separate. `MODELS_PATH`
+can be shared since concurrent model reads are safe.
 
 ### Updating to a New Version
 
