@@ -33,6 +33,10 @@ class VoiceBridgeClient:
     # Reconnection backoff parameters
     _RECONNECT_BASE = 2.0
     _RECONNECT_MAX = 60.0
+    # Max incoming WebSocket message size (16 MB).  The bridge can send large
+    # audio segments when a user's microphone stays active for a long time
+    # (e.g. speaker bleed during TTS playback).  The default 1 MB is too small.
+    _WS_MAX_SIZE = 16 * 1024 * 1024
 
     def __init__(self, url: str) -> None:
         self.url = url
@@ -50,6 +54,8 @@ class VoiceBridgeClient:
         self._dave_status: dict[str, bool] = {}
         # guild_id -> asyncio.Event for disconnect signal
         self._disconnect_events: dict[str, asyncio.Event] = {}
+        # guild_id -> async callback invoked after WebSocket reconnection
+        self._reconnect_callbacks: dict[str, Callable[[], Awaitable[None]]] = {}
 
     async def start(self) -> None:
         """Connect to the bridge and start the message loop."""
@@ -85,10 +91,13 @@ class VoiceBridgeClient:
                     log.info("Connecting to voice bridge at %s", self.url)
                 else:
                     log.debug("Connecting to voice bridge at %s", self.url)
-                async with websockets.connect(self.url) as ws:
+                async with websockets.connect(
+                    self.url, max_size=self._WS_MAX_SIZE,
+                ) as ws:
                     self._ws = ws
                     self._connected.set()
-                    if self._reconnect_attempts > 0:
+                    is_reconnect = self._reconnect_attempts > 0
+                    if is_reconnect:
                         log.info(
                             "Voice bridge reconnected after %d attempts",
                             self._reconnect_attempts,
@@ -96,6 +105,19 @@ class VoiceBridgeClient:
                     else:
                         log.info("Connected to voice bridge")
                     self._reconnect_attempts = 0
+
+                    # After a reconnection the Node bridge has destroyed all
+                    # voice connections, so active sessions must re-join.
+                    if is_reconnect:
+                        for guild_id, cb in list(self._reconnect_callbacks.items()):
+                            try:
+                                await cb()
+                            except Exception:
+                                log.exception(
+                                    "Reconnect callback failed for guild %s",
+                                    guild_id,
+                                )
+
                     async for raw in ws:
                         try:
                             msg = json.loads(raw)
@@ -107,6 +129,10 @@ class VoiceBridgeClient:
             except Exception as exc:
                 self._connected.clear()
                 self._ws = None
+                # Unblock any pending play() waiters so the pipeline doesn't
+                # hang for the full 120 s timeout.
+                for evt in self._play_done_events.values():
+                    evt.set()
                 delay = min(
                     self._RECONNECT_BASE * (2 ** self._reconnect_attempts),
                     self._RECONNECT_MAX,
@@ -180,6 +206,16 @@ class VoiceBridgeClient:
     def unregister_audio_callback(self, guild_id: str) -> None:
         """Remove the audio callback for a guild."""
         self._audio_callbacks.pop(guild_id, None)
+
+    def register_reconnect_callback(
+        self, guild_id: str, callback: Callable[[], Awaitable[None]],
+    ) -> None:
+        """Register a callback invoked after the bridge WebSocket reconnects."""
+        self._reconnect_callbacks[guild_id] = callback
+
+    def unregister_reconnect_callback(self, guild_id: str) -> None:
+        """Remove the reconnect callback for a guild."""
+        self._reconnect_callbacks.pop(guild_id, None)
 
     async def join(
         self,
@@ -262,6 +298,7 @@ class VoiceBridgeClient:
         self._play_done_events.pop(guild_id, None)
         self._disconnect_events.pop(guild_id, None)
         self._dave_status.pop(guild_id, None)
+        self._reconnect_callbacks.pop(guild_id, None)
         try:
             await self.send({"op": "disconnect", "guild_id": guild_id})
         except ConnectionError:
