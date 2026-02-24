@@ -132,6 +132,13 @@ class AuthStore:
                     admin_count,
                     len(self._users) - admin_count,
                 )
+            else:
+                log.warning(
+                    "Auth store is empty — no AUTHORIZED_USER_IDS or "
+                    "ADMIN_USER_IDS configured. Fail-closed: ALL users will "
+                    "be rejected until someone is added. The Discord "
+                    "application owner will be auto-added as admin on startup."
+                )
             self._save_users()
 
         if routes_data.get("routes"):
