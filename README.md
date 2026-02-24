@@ -2,7 +2,7 @@
 
 A Discord bot that brings voice conversation capabilities to [OpenClaw](https://openclaw.ai). It joins your Discord voice channels, listens for speech, communicates with your OpenClaw AI agent, and speaks responses back — enabling hands-free AI conversations.
 
-The bot's display name is configurable via `BOT_NAME` (defaults to "Clippy").
+The bot's display name is configurable via `BOT_NAME` (defaults to "OpenClaw").
 
 ## Features
 
@@ -406,7 +406,7 @@ See [`.env.example`](.env.example) for all available options with comments.
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `DISCORD_BOT_TOKEN` | Yes | — | Discord bot token |
-| `BOT_NAME` | No | `Clippy` | Display name in bot responses |
+| `BOT_NAME` | No | `OpenClaw` | Display name in bot responses |
 | `OPENCLAW_URL` | Yes | `http://localhost:18789` | OpenClaw Gateway URL (use container name in Docker) |
 | `OPENCLAW_API_KEY` | Yes* | — | Gateway auth token (required when `bind` != `loopback`) |
 | `OPENCLAW_AGENT_ID` | No | `voice` | OpenClaw agent to route to (`voice` recommended, `default` for fallback) |

@@ -42,7 +42,7 @@
   <Config
     Name="Bot Name"
     Target="BOT_NAME"
-    Default="Clippy"
+    Default="OpenClaw"
     Mode=""
     Description="Display name used in bot responses"
     Type="Variable"

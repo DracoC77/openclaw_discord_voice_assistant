@@ -15,7 +15,7 @@ your existing OpenClaw Docker container on Unraid. No coding required.
 If you already have a bot token, skip to [Step 2](#step-2-configure-openclaw).
 
 1. Go to the [Discord Developer Portal](https://discord.com/developers/applications)
-2. Click **New Application** → give it a name (e.g., "Clippy Voice") → click **Create**
+2. Click **New Application** → give it a name (e.g., "OpenClaw Voice") → click **Create**
 3. Go to **Bot** in the left sidebar
 4. Click **Reset Token** → **Yes, do it!** → copy the token somewhere safe
    - **This is your `DISCORD_BOT_TOKEN`** — you'll need it later
@@ -282,7 +282,7 @@ These go in `/mnt/user/appdata/discord-voice-assistant/.env`:
 | Setting | Default | What It Does |
 |---------|---------|-------------|
 | `DISCORD_BOT_TOKEN` | *(required)* | Your Discord bot token |
-| `BOT_NAME` | `Clippy` | Name shown in bot responses |
+| `BOT_NAME` | `OpenClaw` | Name shown in bot responses |
 | `OPENCLAW_URL` | `http://localhost:18789` | OpenClaw gateway address |
 | `OPENCLAW_API_KEY` | *(empty)* | Gateway auth token |
 | `OPENCLAW_AGENT_ID` | `voice` | Voice agent ID ([see above](#create-a-voice-agent-recommended)) |
