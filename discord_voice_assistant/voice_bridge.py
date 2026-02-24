@@ -33,10 +33,11 @@ class VoiceBridgeClient:
     # Reconnection backoff parameters
     _RECONNECT_BASE = 2.0
     _RECONNECT_MAX = 60.0
-    # Max incoming WebSocket message size (16 MB).  The bridge can send large
-    # audio segments when a user's microphone stays active for a long time
-    # (e.g. speaker bleed during TTS playback).  The default 1 MB is too small.
-    _WS_MAX_SIZE = 16 * 1024 * 1024
+    # Max incoming WebSocket message size (40 MB ≈ 2m30s of 48kHz stereo PCM
+    # base64-encoded).  The bridge can send large audio segments when a user's
+    # microphone stays active for a long time (e.g. speaker bleed during TTS
+    # playback).  The default 1 MB is too small.
+    _WS_MAX_SIZE = 40 * 1024 * 1024
 
     def __init__(self, url: str) -> None:
         self.url = url
