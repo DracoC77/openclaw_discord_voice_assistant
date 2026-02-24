@@ -54,10 +54,11 @@ class VoiceManager:
         log.info("Voice manager initialized")
 
     def is_authorized(self, user_id: int) -> bool:
-        """Check if a user is authorized to interact with the bot."""
-        ids = self.config.auth.authorized_user_ids
-        # If no authorized users configured, allow all
-        return not ids or user_id in ids
+        """Check if a user is authorized to interact with the bot.
+
+        Fail-closed: if no users are configured, all are rejected.
+        """
+        return self.bot.auth_store.is_authorized(user_id)
 
     async def handle_voice_state_update(
         self,

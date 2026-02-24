@@ -178,13 +178,13 @@ class VoiceCommands(commands.Cog):
 
     @app_commands.command(
         name="new",
-        description="Start a fresh conversation (clears all context)",
+        description="Start a fresh conversation (clears your context)",
     )
     async def new_session(self, interaction: discord.Interaction) -> None:
         vm = self.bot.voice_manager
         session = vm.get_session(interaction.guild.id)
 
-        if not session or not session.is_active or not session.session_id:
+        if not session or not session.is_active:
             await interaction.response.send_message(
                 "No active voice session in this server.", ephemeral=True
             )
@@ -194,11 +194,17 @@ class VoiceCommands(commands.Cog):
             await interaction.response.send_message("You're not authorized.", ephemeral=True)
             return
 
+        # Reset the caller's per-user session
+        user_session_id = session._get_or_create_user_session(interaction.user.id)
+        user_agent_id = self.bot.auth_store.get_agent_id(interaction.user.id)
+
         await interaction.response.defer(ephemeral=True)
-        success = await session._openclaw.reset_session(session.session_id)
+        success = await session._openclaw.reset_session(
+            user_session_id, agent_id=user_agent_id
+        )
         if success:
             await interaction.followup.send(
-                "Conversation cleared. Starting fresh!", ephemeral=True
+                "Your conversation cleared. Starting fresh!", ephemeral=True
             )
         else:
             await interaction.followup.send(
@@ -207,13 +213,13 @@ class VoiceCommands(commands.Cog):
 
     @app_commands.command(
         name="compact",
-        description="Summarize conversation history to free up context space",
+        description="Summarize your conversation history to free up context space",
     )
     async def compact_session(self, interaction: discord.Interaction) -> None:
         vm = self.bot.voice_manager
         session = vm.get_session(interaction.guild.id)
 
-        if not session or not session.is_active or not session.session_id:
+        if not session or not session.is_active:
             await interaction.response.send_message(
                 "No active voice session in this server.", ephemeral=True
             )
@@ -223,11 +229,17 @@ class VoiceCommands(commands.Cog):
             await interaction.response.send_message("You're not authorized.", ephemeral=True)
             return
 
+        # Compact the caller's per-user session
+        user_session_id = session._get_or_create_user_session(interaction.user.id)
+        user_agent_id = self.bot.auth_store.get_agent_id(interaction.user.id)
+
         await interaction.response.defer(ephemeral=True)
-        success = await session._openclaw.compact_session(session.session_id)
+        success = await session._openclaw.compact_session(
+            user_session_id, agent_id=user_agent_id
+        )
         if success:
             await interaction.followup.send(
-                "Conversation compacted. Context has been summarized.", ephemeral=True
+                "Your conversation compacted. Context has been summarized.", ephemeral=True
             )
         else:
             await interaction.followup.send(

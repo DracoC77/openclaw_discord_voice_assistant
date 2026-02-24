@@ -31,7 +31,9 @@ class GeneralCommands(commands.Cog):
         vm = self.bot.voice_manager
         bridge = self.bot.bridge
         session_count = vm.session_count
-        authorized = len(self.bot.config.auth.authorized_user_ids)
+        store = self.bot.auth_store
+        authorized = store.user_count
+        admins = store.admin_count
         name = self.bot.config.discord.bot_name
 
         embed = discord.Embed(
@@ -65,7 +67,7 @@ class GeneralCommands(commands.Cog):
         )
         embed.add_field(
             name="Authorized Users",
-            value=f"{authorized} configured" if authorized else "All users",
+            value=f"{authorized} ({admins} admin)" if authorized else "None (fail-closed)",
             inline=True,
         )
 
@@ -86,7 +88,7 @@ class GeneralCommands(commands.Cog):
 
     @app_commands.command(
         name="authorize",
-        description="Add a user to the authorized list (bot owner only)",
+        description="Add a user to the authorized list (admin only)",
     )
     @app_commands.describe(user="User to authorize")
     async def authorize(
@@ -94,18 +96,17 @@ class GeneralCommands(commands.Cog):
         interaction: discord.Interaction,
         user: discord.User,
     ) -> None:
-        if not await self.bot.is_owner(interaction.user):
+        store = self.bot.auth_store
+        is_owner = await self.bot.is_owner(interaction.user)
+        if not is_owner and not store.is_admin(interaction.user.id):
             await interaction.response.send_message(
-                "Only the bot owner can use this command.", ephemeral=True
+                "Only admins can use this command.", ephemeral=True
             )
             return
 
-        if user.id not in self.bot.config.auth.authorized_user_ids:
-            # Note: This is runtime-only. For persistence, update .env
-            self.bot.config.auth.authorized_user_ids.append(user.id)
+        if store.add_user(user.id, added_by=interaction.user.id):
             await interaction.response.send_message(
-                f"Authorized {user.mention} for voice interactions. "
-                f"Add their ID ({user.id}) to AUTHORIZED_USER_IDS in .env for persistence.",
+                f"Authorized {user.mention} for voice interactions (persisted).",
                 ephemeral=True,
             )
         else:
@@ -115,7 +116,7 @@ class GeneralCommands(commands.Cog):
 
     @app_commands.command(
         name="deauthorize",
-        description="Remove a user from the authorized list (bot owner only)",
+        description="Remove a user from the authorized list (admin only)",
     )
     @app_commands.describe(user="User to deauthorize")
     async def deauthorize(
@@ -123,17 +124,25 @@ class GeneralCommands(commands.Cog):
         interaction: discord.Interaction,
         user: discord.User,
     ) -> None:
-        if not await self.bot.is_owner(interaction.user):
+        store = self.bot.auth_store
+        is_owner = await self.bot.is_owner(interaction.user)
+        if not is_owner and not store.is_admin(interaction.user.id):
             await interaction.response.send_message(
-                "Only the bot owner can use this command.", ephemeral=True
+                "Only admins can use this command.", ephemeral=True
             )
             return
 
-        if user.id in self.bot.config.auth.authorized_user_ids:
-            self.bot.config.auth.authorized_user_ids.remove(user.id)
+        # Lockout protection
+        if store.is_last_admin(user.id):
             await interaction.response.send_message(
-                f"Deauthorized {user.mention}. "
-                f"Remove their ID from AUTHORIZED_USER_IDS in .env for persistence.",
+                f"Cannot deauthorize {user.mention} — they are the last admin.",
+                ephemeral=True,
+            )
+            return
+
+        if store.remove_user(user.id):
+            await interaction.response.send_message(
+                f"Deauthorized {user.mention} (persisted).",
                 ephemeral=True,
             )
         else:
@@ -155,8 +164,8 @@ class GeneralCommands(commands.Cog):
                 "`/ping` - Check bot latency\n"
                 "`/status` - Show current bot status\n"
                 "`/help` - Show this help message\n"
-                "`/authorize @user` - Authorize a user (owner only)\n"
-                "`/deauthorize @user` - Deauthorize a user (owner only)"
+                "`/authorize @user` - Authorize a user (admin only)\n"
+                "`/deauthorize @user` - Deauthorize a user (admin only)"
             ),
             inline=False,
         )
@@ -170,6 +179,18 @@ class GeneralCommands(commands.Cog):
                 "`/timeout <seconds>` - Set inactivity timeout\n"
                 "`/new` - Start a fresh conversation\n"
                 "`/compact` - Summarize conversation to free context"
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="Admin",
+            value=(
+                "`/voice-users` - List authorized users and roles\n"
+                "`/voice-add @user [role] [agent]` - Add user\n"
+                "`/voice-remove @user` - Remove user\n"
+                "`/voice-promote @user` - Promote to admin\n"
+                "`/voice-demote @user` - Demote to user\n"
+                "`/voice-agent @user [agent_id]` - Set/clear agent"
             ),
             inline=False,
         )

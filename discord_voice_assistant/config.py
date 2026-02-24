@@ -88,9 +88,13 @@ class AuthConfig:
     authorized_user_ids: list[int] = field(
         default_factory=lambda: _int_list(os.getenv("AUTHORIZED_USER_IDS", ""))
     )
+    admin_user_ids: list[int] = field(
+        default_factory=lambda: _int_list(os.getenv("ADMIN_USER_IDS", ""))
+    )
     require_wake_word_for_unauthorized: bool = _bool(
         os.getenv("REQUIRE_WAKE_WORD_FOR_UNAUTHORIZED", "true")
     )
+    default_agent_id: str = os.getenv("DEFAULT_AGENT_ID", "")
 
 
 @dataclass(frozen=True)
