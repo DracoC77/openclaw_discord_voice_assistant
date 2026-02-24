@@ -190,7 +190,11 @@ class GeneralCommands(commands.Cog):
                 "`/voice-remove @user` - Remove user\n"
                 "`/voice-promote @user` - Promote to admin\n"
                 "`/voice-demote @user` - Demote to user\n"
-                "`/voice-agent @user [agent_id]` - Set/clear agent"
+                "`/voice-agent @user [agent_id]` - Set/clear agent\n"
+                "`/voice-channels` - List allowed channels\n"
+                "`/voice-channel-add #ch` - Restrict to a channel\n"
+                "`/voice-channel-remove #ch` - Un-restrict a channel\n"
+                "`/voice-channel-clear` - Allow all channels"
             ),
             inline=False,
         )

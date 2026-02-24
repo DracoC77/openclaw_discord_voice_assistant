@@ -297,3 +297,143 @@ class AdminCommands(commands.Cog):
                 f"Reset agent for {user.mention} to default (`{store.default_agent_id}`).",
                 ephemeral=True,
             )
+
+    # ------------------------------------------------------------------
+    # /voice-channels — list allowed channels for this guild
+    # ------------------------------------------------------------------
+
+    @app_commands.command(
+        name="voice-channels",
+        description="List voice channels the bot is allowed to join in this server",
+    )
+    async def voice_channels(self, interaction: discord.Interaction) -> None:
+        if not await _check_admin(self.bot, interaction):
+            return
+
+        store = self.bot.auth_store
+        guild = interaction.guild
+        allowed = store.get_allowed_channels(guild.id)
+
+        if not allowed:
+            await interaction.response.send_message(
+                "No channel restrictions — the bot can join **any** voice channel in this server.\n"
+                "Use `/voice-channel-add` to restrict it to specific channels.",
+                ephemeral=True,
+            )
+            return
+
+        lines = []
+        for cid in allowed:
+            channel = guild.get_channel(cid)
+            if channel:
+                lines.append(f"- {channel.mention} (`{cid}`)")
+            else:
+                lines.append(f"- *Unknown channel* (`{cid}`)")
+
+        embed = discord.Embed(
+            title="Allowed Voice Channels",
+            description="\n".join(lines),
+            color=discord.Color.blue(),
+        )
+        embed.set_footer(
+            text="The bot will only auto-join and accept /join for these channels. "
+            "Use /voice-channel-clear to remove all restrictions."
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    # ------------------------------------------------------------------
+    # /voice-channel-add — add a channel to the allowlist
+    # ------------------------------------------------------------------
+
+    @app_commands.command(
+        name="voice-channel-add",
+        description="Add a voice channel the bot is allowed to join",
+    )
+    @app_commands.describe(channel="Voice channel to allow")
+    async def voice_channel_add(
+        self,
+        interaction: discord.Interaction,
+        channel: discord.VoiceChannel,
+    ) -> None:
+        if not await _check_admin(self.bot, interaction):
+            return
+
+        store = self.bot.auth_store
+
+        if not store.add_allowed_channel(interaction.guild.id, channel.id):
+            await interaction.response.send_message(
+                f"{channel.mention} is already in the allowlist.",
+                ephemeral=True,
+            )
+            return
+
+        count = len(store.get_allowed_channels(interaction.guild.id))
+        await interaction.response.send_message(
+            f"Added {channel.mention} to the allowlist ({count} channel(s) configured).\n"
+            "The bot will now **only** join allowed channels.",
+            ephemeral=True,
+        )
+
+    # ------------------------------------------------------------------
+    # /voice-channel-remove — remove a channel from the allowlist
+    # ------------------------------------------------------------------
+
+    @app_commands.command(
+        name="voice-channel-remove",
+        description="Remove a voice channel from the bot's allowlist",
+    )
+    @app_commands.describe(channel="Voice channel to remove")
+    async def voice_channel_remove(
+        self,
+        interaction: discord.Interaction,
+        channel: discord.VoiceChannel,
+    ) -> None:
+        if not await _check_admin(self.bot, interaction):
+            return
+
+        store = self.bot.auth_store
+
+        if not store.remove_allowed_channel(interaction.guild.id, channel.id):
+            await interaction.response.send_message(
+                f"{channel.mention} is not in the allowlist.",
+                ephemeral=True,
+            )
+            return
+
+        remaining = store.get_allowed_channels(interaction.guild.id)
+        if remaining:
+            await interaction.response.send_message(
+                f"Removed {channel.mention} from the allowlist ({len(remaining)} channel(s) remaining).",
+                ephemeral=True,
+            )
+        else:
+            await interaction.response.send_message(
+                f"Removed {channel.mention}. Allowlist is now empty — bot can join **any** channel.",
+                ephemeral=True,
+            )
+
+    # ------------------------------------------------------------------
+    # /voice-channel-clear — remove all channel restrictions
+    # ------------------------------------------------------------------
+
+    @app_commands.command(
+        name="voice-channel-clear",
+        description="Remove all channel restrictions (bot can join any voice channel)",
+    )
+    async def voice_channel_clear(self, interaction: discord.Interaction) -> None:
+        if not await _check_admin(self.bot, interaction):
+            return
+
+        store = self.bot.auth_store
+
+        if not store.clear_allowed_channels(interaction.guild.id):
+            await interaction.response.send_message(
+                "No channel restrictions to clear — bot can already join any channel.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.send_message(
+            "Channel restrictions cleared. The bot can now join **any** voice channel.",
+            ephemeral=True,
+        )

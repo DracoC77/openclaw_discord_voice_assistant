@@ -78,17 +78,36 @@ class VoiceManager:
         if before.channel and (before.channel != after.channel):
             await self._check_should_leave(guild_id, before.channel)
 
+    def is_channel_allowed(self, guild_id: int, channel_id: int) -> bool:
+        """Check if a channel is in the guild's allowlist (empty = all allowed)."""
+        return self.bot.auth_store.is_channel_allowed(guild_id, channel_id)
+
     async def _try_join(
         self, member: discord.Member, channel: discord.VoiceChannel
     ) -> None:
         """Attempt to join a voice channel where an authorized user is."""
         guild_id = member.guild.id
 
+        # Check channel allowlist before joining
+        if not self.is_channel_allowed(guild_id, channel.id):
+            log.debug(
+                "Ignoring auto-join for %s in %s — channel not in allowlist",
+                channel.name, member.guild.name,
+            )
+            return
+
         # Already in a session in this guild (or join in progress)
         if guild_id in self._sessions:
             session = self._sessions[guild_id]
             # If we're in a different channel, move to the authorized user's channel
+            # (but only if the new channel is in the allowlist)
             if session.voice_client and session.voice_client.channel != channel:
+                if not self.is_channel_allowed(guild_id, channel.id):
+                    log.debug(
+                        "Not following %s to %s — channel not in allowlist",
+                        member.display_name, channel.name,
+                    )
+                    return
                 log.info(
                     "Moving to %s in %s (following %s)",
                     channel.name,
@@ -186,7 +205,7 @@ class VoiceManager:
             # No humans left, leave immediately
             log.info("No users remaining in %s, leaving", channel.name)
             await self.leave_channel(guild_id)
-        elif not authorized_members and self.config.auth.authorized_user_ids:
+        elif not authorized_members and self.bot.auth_store.user_count > 0:
             # No authorized users left, start short timer
             log.info("No authorized users in %s, starting leave timer", channel.name)
             self._reset_inactivity_timer(guild_id, timeout=30)

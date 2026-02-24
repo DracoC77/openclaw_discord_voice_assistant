@@ -46,6 +46,15 @@ class VoiceCommands(commands.Cog):
             return
 
         channel = interaction.user.voice.channel
+
+        if not vm.is_channel_allowed(interaction.guild.id, channel.id):
+            await interaction.response.send_message(
+                f"**{channel.name}** is not in the allowed channels list. "
+                "Ask an admin to add it with `/voice-channel-add`.",
+                ephemeral=True,
+            )
+            return
+
         await interaction.response.send_message(f"Joining **{channel.name}**...", ephemeral=True)
 
         try:

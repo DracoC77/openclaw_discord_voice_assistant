@@ -139,11 +139,18 @@ python -m discord_voice_assistant.main
 | `/voice-promote @user` | Promote a user to admin role |
 | `/voice-demote @user` | Demote an admin to regular user (with lockout protection) |
 | `/voice-agent @user [agent_id]` | Set or clear per-user OpenClaw agent ID |
+| `/voice-channels` | List allowed voice channels for this server |
+| `/voice-channel-add #channel` | Add a voice channel to the allowlist |
+| `/voice-channel-remove #channel` | Remove a voice channel from the allowlist |
+| `/voice-channel-clear` | Remove all channel restrictions (allow all) |
 
 ## Voice Behavior
 
 ### Auto-Join
 When `AUTO_JOIN_ENABLED=true`, the bot automatically joins a voice channel when an authorized user connects. It follows the authorized user if they switch channels.
+
+### Channel Allowlist
+By default, the bot can join any voice channel. Admins can restrict which channels the bot will join using `/voice-channel-add`. Once any channel is added to the allowlist, the bot will **only** join those channels — both for auto-join and `/join`. Use `/voice-channel-clear` to remove all restrictions and return to the default "any channel" behavior. Channel restrictions are per-guild and persisted to `data/channel_config.json`.
 
 ### Per-User Audio Streams
 

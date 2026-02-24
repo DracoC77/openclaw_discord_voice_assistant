@@ -1,8 +1,9 @@
 """Persistent user authorization and agent routing store.
 
-Backed by two JSON files in the data directory:
+Backed by JSON files in the data directory:
   - authorized_users.json: user IDs, roles (admin/user), metadata
   - agent_routing.json: per-user OpenClaw agent ID mappings
+  - channel_config.json: per-guild voice channel allowlists
 
 Bootstraps from AUTHORIZED_USER_IDS and ADMIN_USER_IDS env vars on first run.
 Uses fcntl file locking for safe concurrent access.
@@ -37,11 +38,14 @@ class AuthStore:
         self._data_dir = Path(data_dir)
         self._users_path = self._data_dir / "authorized_users.json"
         self._routes_path = self._data_dir / "agent_routing.json"
+        self._channels_path = self._data_dir / "channel_config.json"
         self._default_agent_id = default_agent_id
 
         # In-memory caches
         self._users: dict[str, dict[str, Any]] = {}
         self._routes: dict[str, dict[str, Any]] = {}
+        # guild_id (str) -> list of allowed channel_id (str)
+        self._channels: dict[str, list[str]] = {}
 
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._load_or_bootstrap(
@@ -139,18 +143,34 @@ class AuthStore:
         else:
             self._save_routes()
 
+        channels_data = self._read_json(self._channels_path)
+        if channels_data.get("guilds"):
+            self._channels = channels_data["guilds"]
+            configured = sum(1 for v in self._channels.values() if v)
+            log.info(
+                "Loaded channel config for %d guild(s) from %s",
+                configured, self._channels_path,
+            )
+        else:
+            self._save_channels()
+
     def _save_users(self) -> None:
         self._write_json(self._users_path, {"users": self._users})
 
     def _save_routes(self) -> None:
         self._write_json(self._routes_path, {"routes": self._routes})
 
+    def _save_channels(self) -> None:
+        self._write_json(self._channels_path, {"guilds": self._channels})
+
     def reload(self) -> None:
         """Reload from disk (useful after external edits)."""
         users_data = self._read_json(self._users_path)
         routes_data = self._read_json(self._routes_path)
+        channels_data = self._read_json(self._channels_path)
         self._users = users_data.get("users", {})
         self._routes = routes_data.get("routes", {})
+        self._channels = channels_data.get("guilds", {})
 
     # ------------------------------------------------------------------
     # User authorization
@@ -276,6 +296,66 @@ class AuthStore:
     @property
     def default_agent_id(self) -> str:
         return self._default_agent_id
+
+    # ------------------------------------------------------------------
+    # Channel allowlist (per-guild)
+    # ------------------------------------------------------------------
+
+    def is_channel_allowed(self, guild_id: int, channel_id: int) -> bool:
+        """Check if a voice channel is in the guild's allowlist.
+
+        Returns True if:
+          - No allowlist is configured for the guild (all channels allowed)
+          - The channel is explicitly in the allowlist
+        """
+        gid = str(guild_id)
+        allowed = self._channels.get(gid)
+        if not allowed:
+            return True  # No restriction — all channels allowed
+        return str(channel_id) in allowed
+
+    def get_allowed_channels(self, guild_id: int) -> list[int]:
+        """Get the list of allowed channel IDs for a guild (empty = all)."""
+        gid = str(guild_id)
+        return [int(cid) for cid in self._channels.get(gid, [])]
+
+    def add_allowed_channel(self, guild_id: int, channel_id: int) -> bool:
+        """Add a channel to the guild's allowlist. Returns False if already present."""
+        gid = str(guild_id)
+        cid = str(channel_id)
+        if gid not in self._channels:
+            self._channels[gid] = []
+        if cid in self._channels[gid]:
+            return False
+        self._channels[gid].append(cid)
+        self._save_channels()
+        log.info("Added channel %s to allowlist for guild %s", channel_id, guild_id)
+        return True
+
+    def remove_allowed_channel(self, guild_id: int, channel_id: int) -> bool:
+        """Remove a channel from the guild's allowlist. Returns False if not found."""
+        gid = str(guild_id)
+        cid = str(channel_id)
+        allowed = self._channels.get(gid, [])
+        if cid not in allowed:
+            return False
+        allowed.remove(cid)
+        # If the list is now empty, remove the guild entry entirely
+        if not allowed:
+            del self._channels[gid]
+        self._save_channels()
+        log.info("Removed channel %s from allowlist for guild %s", channel_id, guild_id)
+        return True
+
+    def clear_allowed_channels(self, guild_id: int) -> bool:
+        """Clear all channel restrictions for a guild (allows all). Returns False if already clear."""
+        gid = str(guild_id)
+        if gid not in self._channels:
+            return False
+        del self._channels[gid]
+        self._save_channels()
+        log.info("Cleared channel allowlist for guild %s", guild_id)
+        return True
 
     # ------------------------------------------------------------------
     # Session key helpers
