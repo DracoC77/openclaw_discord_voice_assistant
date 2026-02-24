@@ -63,7 +63,9 @@ class OpenClawClient:
         log.info("Created session ID: %s", session_id)
         return session_id
 
-    async def _send_command(self, session_id: str, command: str) -> bool:
+    async def _send_command(
+        self, session_id: str, command: str, agent_id: str | None = None
+    ) -> bool:
         """Send a slash command to OpenClaw and return True on success."""
         try:
             http = await self._get_http()
@@ -76,9 +78,10 @@ class OpenClawClient:
                 "user": session_id,
             }
 
+            effective_agent = agent_id or self.config.agent_id
             headers = {}
-            if self.config.agent_id and self.config.agent_id != "default":
-                headers["x-openclaw-agent-id"] = self.config.agent_id
+            if effective_agent and effective_agent != "default":
+                headers["x-openclaw-agent-id"] = effective_agent
 
             url = f"{self.base_url}/v1/chat/completions"
             async with http.post(url, json=payload, headers=headers) as resp:
@@ -99,23 +102,27 @@ class OpenClawClient:
             )
             return False
 
-    async def reset_session(self, session_id: str) -> bool:
+    async def reset_session(
+        self, session_id: str, agent_id: str | None = None
+    ) -> bool:
         """Send ``/new`` to OpenClaw to start a fresh conversation.
 
         This clears the conversation history on the OpenClaw side
         without creating a brand-new session key.
         """
         log.info("Resetting OpenClaw session: %s", session_id)
-        return await self._send_command(session_id, "/new")
+        return await self._send_command(session_id, "/new", agent_id=agent_id)
 
-    async def compact_session(self, session_id: str) -> bool:
+    async def compact_session(
+        self, session_id: str, agent_id: str | None = None
+    ) -> bool:
         """Send ``/compact`` to OpenClaw to summarize conversation history.
 
         This compresses the conversation context without losing it entirely,
         keeping the session's knowledge while freeing up context window space.
         """
         log.info("Compacting OpenClaw session: %s", session_id)
-        return await self._send_command(session_id, "/compact")
+        return await self._send_command(session_id, "/compact", agent_id=agent_id)
 
     async def send_message(
         self,
@@ -123,6 +130,7 @@ class OpenClawClient:
         text: str,
         sender_name: str = "User",
         sender_id: str = "",
+        agent_id: str | None = None,
     ) -> str:
         """Send a message to the OpenClaw agent and get a response.
 
@@ -135,6 +143,7 @@ class OpenClawClient:
             text: The user's message text
             sender_name: Display name of the sender
             sender_id: Unique ID of the sender
+            agent_id: Per-request agent ID override (uses config default if None)
 
         Returns:
             The agent's response text, or empty string on failure.
@@ -164,9 +173,10 @@ class OpenClawClient:
                 "user": session_id,
             }
 
+            effective_agent = agent_id or self.config.agent_id
             headers = {}
-            if self.config.agent_id and self.config.agent_id != "default":
-                headers["x-openclaw-agent-id"] = self.config.agent_id
+            if effective_agent and effective_agent != "default":
+                headers["x-openclaw-agent-id"] = effective_agent
 
             url = f"{self.base_url}/v1/chat/completions"
             log.debug(
@@ -227,6 +237,7 @@ class OpenClawClient:
         text: str,
         sender_name: str = "User",
         sender_id: str = "",
+        agent_id: str | None = None,
     ):
         """Send a message and stream the response via SSE.
 
@@ -256,9 +267,10 @@ class OpenClawClient:
                 "stream": True,
             }
 
+            effective_agent = agent_id or self.config.agent_id
             headers = {}
-            if self.config.agent_id and self.config.agent_id != "default":
-                headers["x-openclaw-agent-id"] = self.config.agent_id
+            if effective_agent and effective_agent != "default":
+                headers["x-openclaw-agent-id"] = effective_agent
 
             async with http.post(
                 f"{self.base_url}/v1/chat/completions",

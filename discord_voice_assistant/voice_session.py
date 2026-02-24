@@ -127,7 +127,10 @@ class VoiceSession:
         self._openclaw: OpenClawClient | None = None
         self._sink: StreamingSink | None = None
         self._processing_lock = asyncio.Lock()
+        # Per-channel session ID kept for backward compat with /new and /compact
         self._session_id: str | None = None
+        # Per-user session IDs: user_id -> session_id
+        self._user_sessions: dict[int, str] = {}
         self._start_time: float = 0
         self._thinking_sound: bytes | None = None
         self._thinking_temp_path: str | None = None
@@ -177,12 +180,11 @@ class VoiceSession:
             log.info("Wake word detection DISABLED")
         self._openclaw = OpenClawClient(self.config.openclaw)
 
+        # Channel-level session ID retained for /new and /compact commands.
+        # Actual LLM calls use per-user session IDs (created on demand).
         self._session_id = await self._openclaw.create_session(
             context=f"discord:voice:{self.guild.id}:{self.channel.id}"
         )
-        # Compact (summarize) the existing context rather than wiping it.
-        # Users can explicitly /new or /compact via slash commands.
-        await self._openclaw.compact_session(self._session_id)
 
         warmup_start = time.monotonic()
         warmup_tasks = [
@@ -422,6 +424,18 @@ class VoiceSession:
             except Exception:
                 log.debug("Error stopping thinking sound", exc_info=True)
 
+    def _get_or_create_user_session(self, user_id: int) -> str:
+        """Get or create a per-user session ID for OpenClaw."""
+        if user_id not in self._user_sessions:
+            session_id = self.bot.auth_store.make_session_id(
+                self.guild.id, self.channel.id, user_id
+            )
+            self._user_sessions[user_id] = session_id
+            log.debug(
+                "Created per-user session for %d: %s", user_id, session_id
+            )
+        return self._user_sessions[user_id]
+
     async def _on_audio_chunk(
         self, user_id: int, audio_data: bytes, sample_rate: int
     ) -> None:
@@ -468,15 +482,21 @@ class VoiceSession:
             speaker_name = member.display_name if member else f"User#{user_id}"
             log.info("[%s] %s", speaker_name, text)
 
+            # Per-user session ID and agent routing
+            auth_store = self.bot.auth_store
+            user_session_id = self._get_or_create_user_session(user_id)
+            user_agent_id = auth_store.get_agent_id(user_id)
+
             await self._start_thinking_sound()
 
             llm_start = time.monotonic()
             try:
                 response = await self._openclaw.send_message(
-                    self._session_id,
+                    user_session_id,
                     text,
                     sender_name=speaker_name,
                     sender_id=str(user_id),
+                    agent_id=user_agent_id,
                 )
             finally:
                 await self._stop_thinking_sound()

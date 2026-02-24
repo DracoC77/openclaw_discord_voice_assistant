@@ -10,7 +10,7 @@ The bot's display name is configurable via `BOT_NAME` (defaults to "Clippy").
 - **Speech-to-text** — real-time transcription using [Faster Whisper](https://github.com/SYSTRAN/faster-whisper) (runs locally, no API costs)
 - **Text-to-speech** — natural voice output via [ElevenLabs](https://elevenlabs.io) or local [Piper TTS](https://github.com/rhasspy/piper) / espeak-ng fallback
 - **Wake word detection** — configurable hotword via [openWakeWord](https://github.com/dscripka/openWakeWord) for multi-user channels
-- **Authorization system** — restrict interactions to specific Discord users, with wake-word gating for others
+- **Authorization system** — fail-closed auth with persistent user store, admin roles, and per-user agent routing
 - **Inactivity timeout** — automatically leaves voice channels after configurable idle period
 - **Slash commands** — `/join`, `/leave`, `/rejoin`, `/status`, `/timeout`, and more
 - **OpenClaw integration** — creates sessions with your OpenClaw agent for each voice conversation
@@ -107,25 +107,50 @@ python -m discord_voice_assistant.main
 
 ## Slash Commands
 
+### General
+
 | Command | Description |
 |---------|-------------|
 | `/ping` | Check bot latency |
 | `/status` | Show bot status and configuration |
 | `/help` | Show all available commands |
+| `/authorize @user` | Add user to authorized list (admin only) |
+| `/deauthorize @user` | Remove user from authorized list (admin only) |
+
+### Voice
+
+| Command | Description |
+|---------|-------------|
 | `/join` | Summon bot to your voice channel |
 | `/leave` | Make bot leave the voice channel |
 | `/rejoin` | Rejoin after inactivity disconnect |
 | `/voice-status` | Show details about the current voice session |
 | `/timeout <seconds>` | Set inactivity timeout (0 to disable) |
-| `/authorize @user` | Add user to authorized list (owner only) |
-| `/new` | Start a fresh conversation (clears all context) |
-| `/compact` | Summarize conversation history to free up context space |
-| `/deauthorize @user` | Remove user from authorized list (owner only) |
+| `/new` | Start a fresh conversation (clears your context) |
+| `/compact` | Summarize your conversation history to free up context space |
+
+### Admin (User & Agent Management)
+
+| Command | Description |
+|---------|-------------|
+| `/voice-users` | List all authorized users with roles and agent mappings |
+| `/voice-add @user [role] [agent_id]` | Add user with optional role (user/admin) and agent override |
+| `/voice-remove @user` | Remove user from authorized list (with lockout protection) |
+| `/voice-promote @user` | Promote a user to admin role |
+| `/voice-demote @user` | Demote an admin to regular user (with lockout protection) |
+| `/voice-agent @user [agent_id]` | Set or clear per-user OpenClaw agent ID |
+| `/voice-channels` | List allowed voice channels for this server |
+| `/voice-channel-add #channel` | Add a voice channel to the allowlist |
+| `/voice-channel-remove #channel` | Remove a voice channel from the allowlist |
+| `/voice-channel-clear` | Remove all channel restrictions (allow all) |
 
 ## Voice Behavior
 
 ### Auto-Join
 When `AUTO_JOIN_ENABLED=true`, the bot automatically joins a voice channel when an authorized user connects. It follows the authorized user if they switch channels.
+
+### Channel Allowlist
+By default, the bot can join any voice channel. Admins can restrict which channels the bot will join using `/voice-channel-add`. Once any channel is added to the allowlist, the bot will **only** join those channels — both for auto-join and `/join`. Use `/voice-channel-clear` to remove all restrictions and return to the default "any channel" behavior. Channel restrictions are per-guild and persisted to `data/channel_config.json`.
 
 ### Per-User Audio Streams
 
@@ -430,7 +455,9 @@ See [`.env.example`](.env.example) for all available options with comments.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `AUTHORIZED_USER_IDS` | No | — | Comma-separated Discord user IDs (empty = allow all) |
+| `AUTHORIZED_USER_IDS` | No | — | Comma-separated Discord user IDs. **Fail-closed: empty = reject all.** Seeds `data/authorized_users.json` on first run. |
+| `ADMIN_USER_IDS` | No | — | Comma-separated Discord user IDs with admin role (can manage users via slash commands). Seeds on first run. |
+| `DEFAULT_AGENT_ID` | No | — | Override default OpenClaw agent ID. Falls back to `OPENCLAW_AGENT_ID`. Per-user overrides via `/voice-agent`. |
 | `REQUIRE_WAKE_WORD_FOR_UNAUTHORIZED` | No | `true` | Require wake word from non-authorized users |
 
 ### Logging & Debugging
@@ -455,9 +482,10 @@ discord_voice_assistant/
 ├── main.py              # Entry point
 ├── bot.py               # Discord bot core
 ├── config.py            # Configuration management
+├── auth_store.py        # Persistent user auth & agent routing store
 ├── voice_bridge.py      # WebSocket client for Node.js voice bridge
 ├── voice_manager.py     # Voice channel lifecycle
-├── voice_session.py     # Per-channel voice session
+├── voice_session.py     # Per-user voice session with agent routing
 ├── audio/
 │   ├── sink.py          # Streaming audio receiver with VAD
 │   ├── stt.py           # Speech-to-text (Faster Whisper)
@@ -465,9 +493,10 @@ discord_voice_assistant/
 │   └── wake_word.py     # Wake word detection (openWakeWord)
 ├── commands/
 │   ├── general.py       # General slash commands
-│   └── voice.py         # Voice-specific slash commands
+│   ├── voice.py         # Voice-specific slash commands
+│   └── admin.py         # Admin user/agent management commands
 └── integrations/
-    └── openclaw.py      # OpenClaw API client
+    └── openclaw.py      # OpenClaw API client (per-user agent routing)
 voice_bridge/
 ├── Dockerfile           # Node.js voice bridge container
 ├── package.json         # Node.js dependencies

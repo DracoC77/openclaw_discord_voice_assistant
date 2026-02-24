@@ -299,7 +299,9 @@ These go in `/mnt/user/appdata/discord-voice-assistant/.env`:
 | `AUTO_JOIN_ENABLED` | `true` | Auto-join when you enter a voice channel |
 | `INACTIVITY_TIMEOUT` | `300` | Seconds of silence before leaving (0 = never) |
 | `MAX_SESSION_DURATION` | `0` | Max session length in seconds (0 = unlimited) |
-| `AUTHORIZED_USER_IDS` | *(empty)* | Comma-separated Discord user IDs (empty = everyone) |
+| `AUTHORIZED_USER_IDS` | *(empty)* | Comma-separated Discord user IDs. **Fail-closed: empty = reject all.** Seeds on first run, then manage via `/voice-add`. |
+| `ADMIN_USER_IDS` | *(empty)* | Comma-separated Discord user IDs with admin role. Seeds on first run. |
+| `DEFAULT_AGENT_ID` | *(empty)* | Override default agent ID for voice (falls back to `OPENCLAW_AGENT_ID`). Per-user via `/voice-agent`. |
 | `REQUIRE_WAKE_WORD_FOR_UNAUTHORIZED` | `true` | Require wake word from non-authorized users |
 | `LOG_LEVEL` | `INFO` | Logging level: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `DEBUG_VOICE_PIPELINE` | `false` | Verbose debug logging for voice pipeline (timing, audio stats) |

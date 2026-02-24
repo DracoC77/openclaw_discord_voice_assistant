@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING
 import discord
 from discord.ext import commands
 
+from discord_voice_assistant.auth_store import AuthStore
+from discord_voice_assistant.commands.admin import AdminCommands
 from discord_voice_assistant.commands.general import GeneralCommands
 from discord_voice_assistant.commands.voice import VoiceCommands
 from discord_voice_assistant.voice_bridge import VoiceBridgeClient
@@ -43,6 +45,16 @@ class VoiceAssistantBot(commands.Bot):
 
         self.config = config
         self.bridge = VoiceBridgeClient(config.voice_bridge.url)
+
+        # Persistent auth store — bootstraps from env vars on first run
+        default_agent = config.auth.default_agent_id or config.openclaw.agent_id
+        self.auth_store = AuthStore(
+            data_dir=config.data_dir,
+            bootstrap_user_ids=config.auth.authorized_user_ids,
+            bootstrap_admin_ids=config.auth.admin_user_ids,
+            default_agent_id=default_agent,
+        )
+
         self.voice_manager = VoiceManager(self, config, self.bridge)
         self._bridge_health_task: asyncio.Task | None = None
 
@@ -68,6 +80,7 @@ class VoiceAssistantBot(commands.Bot):
         if not self.cogs:
             await self.add_cog(GeneralCommands(self))
             await self.add_cog(VoiceCommands(self))
+            await self.add_cog(AdminCommands(self))
 
         # Sync slash commands
         try:

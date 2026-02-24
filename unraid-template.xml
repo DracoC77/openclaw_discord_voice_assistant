@@ -224,9 +224,29 @@
     Target="AUTHORIZED_USER_IDS"
     Default=""
     Mode=""
-    Description="Comma-separated Discord user IDs (leave empty to allow all)"
+    Description="Comma-separated Discord user IDs. FAIL-CLOSED: empty = reject all. Seeds data/authorized_users.json on first run; after that, manage via /voice-add slash command."
     Type="Variable"
     Display="always"
+    Required="false"
+    Mask="false"/>
+  <Config
+    Name="Admin User IDs"
+    Target="ADMIN_USER_IDS"
+    Default=""
+    Mode=""
+    Description="Comma-separated Discord user IDs with admin role. Admins can manage users via /voice-add, /voice-remove, /voice-promote, /voice-demote. Seeds on first run."
+    Type="Variable"
+    Display="always"
+    Required="false"
+    Mask="false"/>
+  <Config
+    Name="Default Agent ID"
+    Target="DEFAULT_AGENT_ID"
+    Default=""
+    Mode=""
+    Description="Override the default OpenClaw agent ID for voice sessions. Falls back to OPENCLAW_AGENT_ID if empty. Per-user agent overrides can be set via /voice-agent."
+    Type="Variable"
+    Display="advanced"
     Required="false"
     Mask="false"/>
   <Config
@@ -294,7 +314,7 @@
     Target="/app/data"
     Default="/mnt/user/appdata/discord-voice-assistant/data"
     Mode="rw"
-    Description="Persistent data (voice profiles, etc.)"
+    Description="Persistent data (authorized users, agent routing, voice profiles)"
     Type="Path"
     Display="always"
     Required="true"
