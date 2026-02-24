@@ -96,10 +96,15 @@ Optional but recommended:
 BOT_NAME=Clippy
 OPENCLAW_AGENT_ID=voice
 AUTHORIZED_USER_IDS=<comma-separated-discord-user-ids>
+ADMIN_USER_IDS=<comma-separated-admin-discord-user-ids>
 STT_MODEL_SIZE=base
 TTS_PROVIDER=local
 INACTIVITY_TIMEOUT=300
 ```
+
+> **Note:** Auth is **fail-closed** — if `AUTHORIZED_USER_IDS` is empty, no one can
+> interact. These env vars seed `data/authorized_users.json` on first run; after that,
+> manage users via `/voice-add`, `/voice-remove`, and other admin slash commands.
 
 > **Note:** Set `OPENCLAW_AGENT_ID` to a dedicated voice agent for best results.
 > See [Create a Dedicated Voice Agent](#3-create-a-dedicated-voice-agent-recommended)
@@ -372,7 +377,9 @@ docker compose up -d
 | `AUTO_JOIN_ENABLED` | No | `true` | Auto-join voice channels |
 | `INACTIVITY_TIMEOUT` | No | `300` | Seconds before auto-leave (0 = disable) |
 | `MAX_SESSION_DURATION` | No | `0` | Max session length in seconds (0 = unlimited) |
-| `AUTHORIZED_USER_IDS` | No | — | Comma-separated Discord user IDs |
+| `AUTHORIZED_USER_IDS` | No | — | Comma-separated Discord user IDs. **Fail-closed: empty = reject all.** Seeds `data/authorized_users.json` on first run. |
+| `ADMIN_USER_IDS` | No | — | Comma-separated Discord user IDs with admin role (can manage users via slash commands) |
+| `DEFAULT_AGENT_ID` | No | — | Override default agent ID for voice sessions (falls back to `OPENCLAW_AGENT_ID`). Per-user overrides via `/voice-agent`. |
 | `REQUIRE_WAKE_WORD_FOR_UNAUTHORIZED` | No | `true` | Require wake word from non-authorized users |
 | `LOG_LEVEL` | No | `INFO` | DEBUG/INFO/WARNING/ERROR |
 | `DEBUG_VOICE_PIPELINE` | No | `false` | Verbose voice pipeline debug logging |
