@@ -524,6 +524,89 @@ class VoiceSession:
             full_response = ""
             first_sentence = True
 
+            # Pipelined TTS: sentences flow through a queue so that TTS
+            # synthesis for the *next* sentence overlaps with playback of
+            # the *current* one, eliminating the ~1.4s dead-air gap that
+            # occurs when TTS runs sequentially between plays.
+            tts_queue: asyncio.Queue = asyncio.Queue()
+
+            _SENTINEL = object()  # unique marker distinct from None
+
+            async def _tts_play_worker() -> None:
+                """Consume sentences, synthesize, and play sequentially.
+
+                When a sentence finishes playing, the worker peeks ahead in the
+                queue.  If the next sentence is already available it kicks off
+                TTS synthesis as a background task so that audio is ready
+                (or nearly ready) by the time playback of the current clip ends.
+                This eliminates the ~1.4s dead-air gap between sentences.
+                """
+                nonlocal first_sentence
+                prefetch: asyncio.Task[bytes | None] | None = None
+                stop_after_play = False
+
+                while True:
+                    # --- Get next sentence and its audio ----------------------
+                    if prefetch is not None:
+                        # TTS was started during the previous play(); await it
+                        audio_bytes = await prefetch
+                        prefetch = None
+                    else:
+                        item = await tts_queue.get()
+                        if item is _SENTINEL:
+                            break
+                        if not self.is_active:
+                            continue
+                        audio_bytes = await self._synthesize(item)
+
+                    if not audio_bytes:
+                        if stop_after_play:
+                            break
+                        continue
+
+                    if first_sentence:
+                        await self._stop_thinking_sound()
+                        first_sentence = False
+
+                    if not self.is_active:
+                        if stop_after_play:
+                            break
+                        continue
+
+                    # --- Peek: start TTS for the next sentence in parallel ----
+                    if not stop_after_play:
+                        try:
+                            peeked = tts_queue.get_nowait()
+                        except asyncio.QueueEmpty:
+                            peeked = None
+
+                        if peeked is _SENTINEL:
+                            # Sentinel consumed; play current audio then exit
+                            stop_after_play = True
+                        elif peeked is not None:
+                            prefetch = asyncio.create_task(
+                                self._synthesize(peeked)
+                            )
+
+                    # --- Play current audio (prefetch runs concurrently) ------
+                    try:
+                        await self.bridge.play(
+                            guild_id=self._guild_id_str,
+                            audio_bytes=audio_bytes,
+                            fmt="wav",
+                            timeout=120.0,
+                        )
+                    except Exception:
+                        log.exception("Failed to play audio via bridge")
+
+                    if self._sink:
+                        self._sink.drain()
+
+                    if stop_after_play:
+                        break
+
+            worker_task = asyncio.create_task(_tts_play_worker())
+
             try:
                 async for delta in self._openclaw.send_message_stream(
                     user_session_id,
@@ -535,19 +618,12 @@ class VoiceSession:
                     sentence_buf += delta
                     full_response += delta
 
-                    # Extract and speak complete sentences as they arrive
+                    # Extract complete sentences and feed them to the TTS worker
                     while True:
                         sentence, rest = _split_first_sentence(sentence_buf)
                         if sentence is None:
                             break
                         sentence_buf = rest
-
-                        if first_sentence:
-                            await self._stop_thinking_sound()
-                            first_sentence = False
-
-                        if not self.is_active:
-                            return
 
                         log.debug(
                             "Sentence ready (%.3fs from LLM start, %d chars): %r",
@@ -555,25 +631,24 @@ class VoiceSession:
                             len(sentence),
                             sentence[:100],
                         )
-                        await self._speak(sentence)
-            finally:
-                # Always stop thinking sound even if the stream errors out
-                if first_sentence:
-                    await self._stop_thinking_sound()
+                        await tts_queue.put(sentence)
 
-            # Flush any remaining text that didn't end with sentence punctuation
-            remaining = sentence_buf.strip()
-            if remaining:
-                if first_sentence:
-                    await self._stop_thinking_sound()
-                    first_sentence = False
-                if self.is_active:
+                # Flush any remaining text that didn't end with sentence punctuation
+                remaining = sentence_buf.strip()
+                if remaining:
                     log.debug(
                         "Flushing remaining buffer (%d chars): %r",
                         len(remaining),
                         remaining[:100],
                     )
-                    await self._speak(remaining)
+                    await tts_queue.put(remaining)
+            finally:
+                # Always stop thinking sound even if the stream errors out
+                if first_sentence:
+                    await self._stop_thinking_sound()
+                # Signal worker to finish and wait for remaining audio to play
+                await tts_queue.put(_SENTINEL)
+                await worker_task
 
             llm_elapsed = time.monotonic() - llm_start
 
@@ -593,20 +668,26 @@ class VoiceSession:
                 user_id, stt_elapsed, llm_elapsed, total_elapsed,
             )
 
+    async def _synthesize(self, text: str) -> bytes | None:
+        """Run TTS synthesis and return raw audio bytes (no playback)."""
+        synth_start = time.monotonic()
+        audio_bytes = await self._tts.synthesize(text)
+        log.debug(
+            "TTS produced %d bytes in %.3fs",
+            len(audio_bytes) if audio_bytes else 0,
+            time.monotonic() - synth_start,
+        )
+        return audio_bytes
+
     async def _speak(self, text: str) -> None:
         """Convert text to speech and play it via the voice bridge."""
         if not self.is_active:
             return
 
-        synth_start = time.monotonic()
-        audio_bytes = await self._tts.synthesize(text)
+        audio_bytes = await self._synthesize(text)
         if not audio_bytes:
             log.warning("TTS returned no audio for: %s", text[:200])
             return
-
-        log.debug(
-            "TTS produced %d bytes in %.3fs", len(audio_bytes), time.monotonic() - synth_start,
-        )
 
         if not self.is_active:
             return
