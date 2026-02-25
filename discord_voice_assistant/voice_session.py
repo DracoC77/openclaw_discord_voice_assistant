@@ -6,6 +6,7 @@ import asyncio
 import base64
 import logging
 import os
+import re
 import tempfile
 import time
 from typing import TYPE_CHECKING
@@ -24,6 +25,32 @@ if TYPE_CHECKING:
     from discord_voice_assistant.voice_bridge import VoiceBridgeClient
 
 log = logging.getLogger(__name__)
+
+# Matches sentence-ending punctuation followed by whitespace (or end of string).
+# Separate fixed-width negative lookbehinds avoid splitting on common
+# abbreviations and decimal numbers.  Python's `re` module requires each
+# lookbehind branch to have a fixed width, so we list them individually
+# grouped by character length rather than using a single alternation.
+_SENTENCE_END_RE = re.compile(
+    r"(?<!Mr)(?<!Ms)(?<!Dr)(?<!Jr)(?<!Sr)(?<!St)(?<!vs)(?<!co)"  # 2-char abbrevs
+    r"(?<!Mrs)(?<!etc)(?<!inc)(?<!ltd)"                           # 3-char abbrevs
+    r"(?<!\d)"       # not after a digit (avoids "3.14 ...")
+    r"[.!?]"         # sentence-ending punctuation
+    r"(?:\s|$)",      # followed by whitespace or end-of-string
+)
+
+
+def _split_first_sentence(buffer: str) -> tuple[str | None, str]:
+    """Split the first complete sentence from *buffer*.
+
+    Returns ``(sentence, remaining)`` if a sentence boundary is found,
+    or ``(None, buffer)`` if no complete sentence is available yet.
+    """
+    m = _SENTENCE_END_RE.search(buffer)
+    if m:
+        end = m.end()
+        return buffer[:end].strip(), buffer[end:]
+    return None, buffer
 
 
 class _BridgeVoiceProtocol(discord.VoiceProtocol):
@@ -493,35 +520,77 @@ class VoiceSession:
             await self._start_thinking_sound()
 
             llm_start = time.monotonic()
+            sentence_buf = ""
+            full_response = ""
+            first_sentence = True
+
             try:
-                response = await self._openclaw.send_message(
+                async for delta in self._openclaw.send_message_stream(
                     user_session_id,
                     text,
                     sender_name=speaker_name,
                     sender_id=str(user_id),
                     agent_id=user_agent_id,
-                )
+                ):
+                    sentence_buf += delta
+                    full_response += delta
+
+                    # Extract and speak complete sentences as they arrive
+                    while True:
+                        sentence, rest = _split_first_sentence(sentence_buf)
+                        if sentence is None:
+                            break
+                        sentence_buf = rest
+
+                        if first_sentence:
+                            await self._stop_thinking_sound()
+                            first_sentence = False
+
+                        if not self.is_active:
+                            return
+
+                        log.debug(
+                            "Sentence ready (%.3fs from LLM start, %d chars): %r",
+                            time.monotonic() - llm_start,
+                            len(sentence),
+                            sentence[:100],
+                        )
+                        await self._speak(sentence)
             finally:
-                await self._stop_thinking_sound()
+                # Always stop thinking sound even if the stream errors out
+                if first_sentence:
+                    await self._stop_thinking_sound()
+
+            # Flush any remaining text that didn't end with sentence punctuation
+            remaining = sentence_buf.strip()
+            if remaining:
+                if first_sentence:
+                    await self._stop_thinking_sound()
+                    first_sentence = False
+                if self.is_active:
+                    log.debug(
+                        "Flushing remaining buffer (%d chars): %r",
+                        len(remaining),
+                        remaining[:100],
+                    )
+                    await self._speak(remaining)
+
             llm_elapsed = time.monotonic() - llm_start
 
-            if not response:
-                log.warning("OpenClaw returned empty response for %r (%.3fs)", text[:200], llm_elapsed)
+            if not full_response:
+                log.warning(
+                    "OpenClaw stream returned no content for %r (%.3fs)",
+                    text[:200],
+                    llm_elapsed,
+                )
                 return
 
-            log.info("[Assistant] %s", response)
-
-            if not self.is_active:
-                return
-
-            tts_start = time.monotonic()
-            await self._speak(response)
-            tts_elapsed = time.monotonic() - tts_start
+            log.info("[Assistant] %s", full_response)
 
             total_elapsed = time.monotonic() - pipeline_start
             log.debug(
-                "Pipeline END for user %d: stt=%.3fs llm=%.3fs tts=%.3fs total=%.3fs",
-                user_id, stt_elapsed, llm_elapsed, tts_elapsed, total_elapsed,
+                "Pipeline END for user %d: stt=%.3fs stream+tts=%.3fs total=%.3fs",
+                user_id, stt_elapsed, llm_elapsed, total_elapsed,
             )
 
     async def _speak(self, text: str) -> None:
