@@ -524,6 +524,59 @@ class VoiceSession:
             full_response = ""
             first_sentence = True
 
+            # Two-queue pipeline (inspired by RealtimeTTS):
+            #
+            #   SSE stream → sentence_queue → tts_worker → audio_queue → play_worker
+            #
+            # The TTS worker synthesizes as fast as sentences arrive, completely
+            # independent of playback.  By the time a sentence finishes playing,
+            # the next one (and possibly several more) are already synthesized
+            # and waiting in the audio queue.  This eliminates the ~1.4s
+            # dead-air gap that occurs with sequential TTS + playback.
+            _SENTINEL = object()
+            sentence_queue: asyncio.Queue = asyncio.Queue()
+            audio_queue: asyncio.Queue = asyncio.Queue()
+
+            async def _tts_worker() -> None:
+                """Synthesize sentences as fast as they arrive."""
+                while True:
+                    item = await sentence_queue.get()
+                    if item is _SENTINEL:
+                        await audio_queue.put(_SENTINEL)
+                        break
+                    if not self.is_active:
+                        continue
+                    audio = await self._synthesize(item)
+                    if audio:
+                        await audio_queue.put(audio)
+
+            async def _play_worker() -> None:
+                """Play pre-synthesized audio clips sequentially."""
+                nonlocal first_sentence
+                while True:
+                    item = await audio_queue.get()
+                    if item is _SENTINEL:
+                        break
+                    if first_sentence:
+                        await self._stop_thinking_sound()
+                        first_sentence = False
+                    if not self.is_active:
+                        continue
+                    try:
+                        await self.bridge.play(
+                            guild_id=self._guild_id_str,
+                            audio_bytes=item,
+                            fmt="wav",
+                            timeout=120.0,
+                        )
+                    except Exception:
+                        log.exception("Failed to play audio via bridge")
+                    if self._sink:
+                        self._sink.drain()
+
+            tts_task = asyncio.create_task(_tts_worker())
+            play_task = asyncio.create_task(_play_worker())
+
             try:
                 async for delta in self._openclaw.send_message_stream(
                     user_session_id,
@@ -535,19 +588,12 @@ class VoiceSession:
                     sentence_buf += delta
                     full_response += delta
 
-                    # Extract and speak complete sentences as they arrive
+                    # Extract complete sentences and feed them to the TTS worker
                     while True:
                         sentence, rest = _split_first_sentence(sentence_buf)
                         if sentence is None:
                             break
                         sentence_buf = rest
-
-                        if first_sentence:
-                            await self._stop_thinking_sound()
-                            first_sentence = False
-
-                        if not self.is_active:
-                            return
 
                         log.debug(
                             "Sentence ready (%.3fs from LLM start, %d chars): %r",
@@ -555,25 +601,25 @@ class VoiceSession:
                             len(sentence),
                             sentence[:100],
                         )
-                        await self._speak(sentence)
-            finally:
-                # Always stop thinking sound even if the stream errors out
-                if first_sentence:
-                    await self._stop_thinking_sound()
+                        await sentence_queue.put(sentence)
 
-            # Flush any remaining text that didn't end with sentence punctuation
-            remaining = sentence_buf.strip()
-            if remaining:
-                if first_sentence:
-                    await self._stop_thinking_sound()
-                    first_sentence = False
-                if self.is_active:
+                # Flush any remaining text that didn't end with sentence punctuation
+                remaining = sentence_buf.strip()
+                if remaining:
                     log.debug(
                         "Flushing remaining buffer (%d chars): %r",
                         len(remaining),
                         remaining[:100],
                     )
-                    await self._speak(remaining)
+                    await sentence_queue.put(remaining)
+            finally:
+                # Always stop thinking sound even if the stream errors out
+                if first_sentence:
+                    await self._stop_thinking_sound()
+                # Signal the pipeline to drain and wait for all audio to finish
+                await sentence_queue.put(_SENTINEL)
+                await tts_task
+                await play_task
 
             llm_elapsed = time.monotonic() - llm_start
 
@@ -593,20 +639,26 @@ class VoiceSession:
                 user_id, stt_elapsed, llm_elapsed, total_elapsed,
             )
 
+    async def _synthesize(self, text: str) -> bytes | None:
+        """Run TTS synthesis and return raw audio bytes (no playback)."""
+        synth_start = time.monotonic()
+        audio_bytes = await self._tts.synthesize(text)
+        log.debug(
+            "TTS produced %d bytes in %.3fs",
+            len(audio_bytes) if audio_bytes else 0,
+            time.monotonic() - synth_start,
+        )
+        return audio_bytes
+
     async def _speak(self, text: str) -> None:
         """Convert text to speech and play it via the voice bridge."""
         if not self.is_active:
             return
 
-        synth_start = time.monotonic()
-        audio_bytes = await self._tts.synthesize(text)
+        audio_bytes = await self._synthesize(text)
         if not audio_bytes:
             log.warning("TTS returned no audio for: %s", text[:200])
             return
-
-        log.debug(
-            "TTS produced %d bytes in %.3fs", len(audio_bytes), time.monotonic() - synth_start,
-        )
 
         if not self.is_active:
             return
