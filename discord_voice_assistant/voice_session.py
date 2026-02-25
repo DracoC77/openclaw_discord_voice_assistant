@@ -401,11 +401,14 @@ class VoiceSession:
                 # Send directly rather than using bridge.play() since we don't
                 # want to block waiting for play_done — the LLM response will
                 # stop this sound and then play the actual TTS audio.
+                # loop=True tells the bridge to replay the clip continuously
+                # until an explicit stop command is received.
                 await self.bridge.send({
                     "op": "play",
                     "guild_id": self._guild_id_str,
                     "audio": base64.b64encode(self._thinking_sound).decode("ascii"),
                     "format": "wav",
+                    "loop": True,
                 })
                 log.debug("Thinking sound started via bridge")
             except ConnectionError:
