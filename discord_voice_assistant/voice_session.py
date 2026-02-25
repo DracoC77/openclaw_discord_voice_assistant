@@ -524,88 +524,58 @@ class VoiceSession:
             full_response = ""
             first_sentence = True
 
-            # Pipelined TTS: sentences flow through a queue so that TTS
-            # synthesis for the *next* sentence overlaps with playback of
-            # the *current* one, eliminating the ~1.4s dead-air gap that
-            # occurs when TTS runs sequentially between plays.
-            tts_queue: asyncio.Queue = asyncio.Queue()
+            # Two-queue pipeline (inspired by RealtimeTTS):
+            #
+            #   SSE stream → sentence_queue → tts_worker → audio_queue → play_worker
+            #
+            # The TTS worker synthesizes as fast as sentences arrive, completely
+            # independent of playback.  By the time a sentence finishes playing,
+            # the next one (and possibly several more) are already synthesized
+            # and waiting in the audio queue.  This eliminates the ~1.4s
+            # dead-air gap that occurs with sequential TTS + playback.
+            _SENTINEL = object()
+            sentence_queue: asyncio.Queue = asyncio.Queue()
+            audio_queue: asyncio.Queue = asyncio.Queue()
 
-            _SENTINEL = object()  # unique marker distinct from None
-
-            async def _tts_play_worker() -> None:
-                """Consume sentences, synthesize, and play sequentially.
-
-                When a sentence finishes playing, the worker peeks ahead in the
-                queue.  If the next sentence is already available it kicks off
-                TTS synthesis as a background task so that audio is ready
-                (or nearly ready) by the time playback of the current clip ends.
-                This eliminates the ~1.4s dead-air gap between sentences.
-                """
-                nonlocal first_sentence
-                prefetch: asyncio.Task[bytes | None] | None = None
-                stop_after_play = False
-
+            async def _tts_worker() -> None:
+                """Synthesize sentences as fast as they arrive."""
                 while True:
-                    # --- Get next sentence and its audio ----------------------
-                    if prefetch is not None:
-                        # TTS was started during the previous play(); await it
-                        audio_bytes = await prefetch
-                        prefetch = None
-                    else:
-                        item = await tts_queue.get()
-                        if item is _SENTINEL:
-                            break
-                        if not self.is_active:
-                            continue
-                        audio_bytes = await self._synthesize(item)
-
-                    if not audio_bytes:
-                        if stop_after_play:
-                            break
+                    item = await sentence_queue.get()
+                    if item is _SENTINEL:
+                        await audio_queue.put(_SENTINEL)
+                        break
+                    if not self.is_active:
                         continue
+                    audio = await self._synthesize(item)
+                    if audio:
+                        await audio_queue.put(audio)
 
+            async def _play_worker() -> None:
+                """Play pre-synthesized audio clips sequentially."""
+                nonlocal first_sentence
+                while True:
+                    item = await audio_queue.get()
+                    if item is _SENTINEL:
+                        break
                     if first_sentence:
                         await self._stop_thinking_sound()
                         first_sentence = False
-
                     if not self.is_active:
-                        if stop_after_play:
-                            break
                         continue
-
-                    # --- Peek: start TTS for the next sentence in parallel ----
-                    if not stop_after_play:
-                        try:
-                            peeked = tts_queue.get_nowait()
-                        except asyncio.QueueEmpty:
-                            peeked = None
-
-                        if peeked is _SENTINEL:
-                            # Sentinel consumed; play current audio then exit
-                            stop_after_play = True
-                        elif peeked is not None:
-                            prefetch = asyncio.create_task(
-                                self._synthesize(peeked)
-                            )
-
-                    # --- Play current audio (prefetch runs concurrently) ------
                     try:
                         await self.bridge.play(
                             guild_id=self._guild_id_str,
-                            audio_bytes=audio_bytes,
+                            audio_bytes=item,
                             fmt="wav",
                             timeout=120.0,
                         )
                     except Exception:
                         log.exception("Failed to play audio via bridge")
-
                     if self._sink:
                         self._sink.drain()
 
-                    if stop_after_play:
-                        break
-
-            worker_task = asyncio.create_task(_tts_play_worker())
+            tts_task = asyncio.create_task(_tts_worker())
+            play_task = asyncio.create_task(_play_worker())
 
             try:
                 async for delta in self._openclaw.send_message_stream(
@@ -631,7 +601,7 @@ class VoiceSession:
                             len(sentence),
                             sentence[:100],
                         )
-                        await tts_queue.put(sentence)
+                        await sentence_queue.put(sentence)
 
                 # Flush any remaining text that didn't end with sentence punctuation
                 remaining = sentence_buf.strip()
@@ -641,14 +611,15 @@ class VoiceSession:
                         len(remaining),
                         remaining[:100],
                     )
-                    await tts_queue.put(remaining)
+                    await sentence_queue.put(remaining)
             finally:
                 # Always stop thinking sound even if the stream errors out
                 if first_sentence:
                     await self._stop_thinking_sound()
-                # Signal worker to finish and wait for remaining audio to play
-                await tts_queue.put(_SENTINEL)
-                await worker_task
+                # Signal the pipeline to drain and wait for all audio to finish
+                await sentence_queue.put(_SENTINEL)
+                await tts_task
+                await play_task
 
             llm_elapsed = time.monotonic() - llm_start
 
