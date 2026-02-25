@@ -428,6 +428,9 @@ See [`.env.example`](.env.example) for all available options with comments.
 | `LOCAL_TTS_MODEL` | No | `en_US-hfc_male-medium` | Piper model name (auto-downloads from HuggingFace) |
 | `ELEVENLABS_API_KEY` | If elevenlabs | — | ElevenLabs API key |
 | `ELEVENLABS_VOICE_ID` | No | `21m00Tcm4TlvDq8ikWAM` | ElevenLabs voice ID |
+| `TTS_SENTENCE_SILENCE_MS` | No | `300` | Silence between sentences in ms (0 = disable) |
+| `TTS_STRIP_LEADING_SILENCE` | No | `true` | Strip silent prefix from TTS audio (reduces perceived latency) |
+| `TTS_BUFFER_THRESHOLD` | No | `2` | Buffered clips before batching sentences for better prosody |
 
 ### Voice Bridge (DAVE E2EE)
 

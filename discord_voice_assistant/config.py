@@ -40,6 +40,9 @@ class TTSConfig:
     elevenlabs_api_key: str = os.getenv("ELEVENLABS_API_KEY", "")
     elevenlabs_voice_id: str = os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
     local_model: str = os.getenv("LOCAL_TTS_MODEL", "en_US-hfc_male-medium")
+    sentence_silence_ms: int = int(os.getenv("TTS_SENTENCE_SILENCE_MS", "300"))
+    strip_leading_silence: bool = _bool(os.getenv("TTS_STRIP_LEADING_SILENCE", "true"))
+    buffer_threshold: int = int(os.getenv("TTS_BUFFER_THRESHOLD", "2"))
 
 
 @dataclass(frozen=True)

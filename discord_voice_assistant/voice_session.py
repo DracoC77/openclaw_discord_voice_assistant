@@ -533,12 +533,21 @@ class VoiceSession:
             # the next one (and possibly several more) are already synthesized
             # and waiting in the audio queue.  This eliminates the ~1.4s
             # dead-air gap that occurs with sequential TTS + playback.
+            #
+            # Buffer-aware batching: after the first sentence (which is always
+            # sent immediately for lowest latency), the TTS worker checks if
+            # enough audio is already buffered.  If so, it batches consecutive
+            # sentences together before synthesizing — giving the TTS engine
+            # more context for better prosody and more natural intonation.
             _SENTINEL = object()
             sentence_queue: asyncio.Queue = asyncio.Queue()
             audio_queue: asyncio.Queue = asyncio.Queue()
+            buffer_threshold = self.config.tts.buffer_threshold
+            sentence_silence_s = self.config.tts.sentence_silence_ms / 1000.0
 
             async def _tts_worker() -> None:
-                """Synthesize sentences as fast as they arrive."""
+                """Synthesize sentences, batching when audio is well-buffered."""
+                first_tts = True
                 while True:
                     item = await sentence_queue.get()
                     if item is _SENTINEL:
@@ -546,12 +555,37 @@ class VoiceSession:
                         break
                     if not self.is_active:
                         continue
-                    audio = await self._synthesize(item)
+
+                    text = item
+
+                    # After the first sentence, if we already have enough
+                    # audio buffered, batch more sentences for better prosody.
+                    if not first_tts and audio_queue.qsize() >= buffer_threshold:
+                        while True:
+                            try:
+                                peek = sentence_queue.get_nowait()
+                            except asyncio.QueueEmpty:
+                                break
+                            if peek is _SENTINEL:
+                                # Synthesize accumulated text, then propagate end
+                                audio = await self._synthesize(text)
+                                if audio:
+                                    await audio_queue.put(audio)
+                                await audio_queue.put(_SENTINEL)
+                                return
+                            text += " " + peek
+                        log.debug(
+                            "Batched sentences for prosody (%d chars): %r",
+                            len(text), text[:120],
+                        )
+
+                    audio = await self._synthesize(text)
                     if audio:
                         await audio_queue.put(audio)
+                        first_tts = False
 
             async def _play_worker() -> None:
-                """Play pre-synthesized audio clips sequentially."""
+                """Play pre-synthesized audio clips with inter-sentence pauses."""
                 nonlocal first_sentence
                 while True:
                     item = await audio_queue.get()
@@ -573,6 +607,9 @@ class VoiceSession:
                         log.exception("Failed to play audio via bridge")
                     if self._sink:
                         self._sink.drain()
+                    # Natural pause between sentences (configurable)
+                    if sentence_silence_s > 0:
+                        await asyncio.sleep(sentence_silence_s)
 
             tts_task = asyncio.create_task(_tts_worker())
             play_task = asyncio.create_task(_play_worker())
