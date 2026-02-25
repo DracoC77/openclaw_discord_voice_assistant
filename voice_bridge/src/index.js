@@ -65,6 +65,10 @@ class GuildVoiceConnection {
     this._adapterMethods = null;
     // Queue for voice credentials arriving before adapter is ready
     this._pendingUpdates = [];
+
+    // Looping playback state (used for thinking sound)
+    this._loopAudio = null;   // base64 audio to loop, or null
+    this._loopFormat = null;  // format of the looped audio
   }
 
   /**
@@ -162,8 +166,13 @@ class GuildVoiceConnection {
     });
 
     this.player.on(AudioPlayerStatus.Idle, () => {
-      log('DEBUG', `Playback finished: guild=${this.guildId}`);
-      this.send({ op: 'play_done', guild_id: this.guildId });
+      if (this._loopAudio) {
+        log('DEBUG', `Looping audio: guild=${this.guildId}`);
+        this.play(this._loopAudio, this._loopFormat || 'wav');
+      } else {
+        log('DEBUG', `Playback finished: guild=${this.guildId}`);
+        this.send({ op: 'play_done', guild_id: this.guildId });
+      }
     });
 
     return this.connection;
@@ -273,14 +282,24 @@ class GuildVoiceConnection {
    * Play audio in the voice channel.
    * Accepts base64-encoded WAV data.
    */
-  play(audioBase64, format = 'wav') {
+  play(audioBase64, format = 'wav', loop = false) {
     if (!this.player) {
       log('WARNING', `No player available for guild=${this.guildId}`);
       return;
     }
 
+    // Store loop state (only set on the initial call, not on re-plays from Idle handler)
+    if (loop) {
+      this._loopAudio = audioBase64;
+      this._loopFormat = format;
+    } else if (!this._loopAudio) {
+      // Non-looping play clears any previous loop
+      this._loopAudio = null;
+      this._loopFormat = null;
+    }
+
     const buffer = Buffer.from(audioBase64, 'base64');
-    log('DEBUG', `Playing audio: guild=${this.guildId}, ${buffer.length} bytes, format=${format}`);
+    log('DEBUG', `Playing audio: guild=${this.guildId}, ${buffer.length} bytes, format=${format}, loop=${!!this._loopAudio}`);
 
     const stream = new PassThrough();
     stream.end(buffer);
@@ -305,6 +324,9 @@ class GuildVoiceConnection {
    * Stop current playback.
    */
   stop() {
+    // Clear loop state first so the Idle handler doesn't restart playback
+    this._loopAudio = null;
+    this._loopFormat = null;
     if (this.player) {
       this.player.stop();
     }
@@ -319,6 +341,8 @@ class GuildVoiceConnection {
     }
     this.listeningStreams.clear();
     this._pendingUpdates = [];
+    this._loopAudio = null;
+    this._loopFormat = null;
 
     if (this.player) {
       this.player.stop();
@@ -477,13 +501,13 @@ class VoiceBridge {
   }
 
   _handlePlay(msg) {
-    const { guild_id, audio, format } = msg;
+    const { guild_id, audio, format, loop } = msg;
     const conn = this.guilds.get(guild_id);
     if (!conn) {
       log('WARNING', `No connection for guild ${guild_id} (play)`);
       return;
     }
-    conn.play(audio, format || 'wav');
+    conn.play(audio, format || 'wav', !!loop);
   }
 
   _handleStop(msg) {
