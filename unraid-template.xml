@@ -120,6 +120,26 @@
     Required="false"
     Mask="false"/>
   <Config
+    Name="Sentence Silence (ms)"
+    Target="TTS_SENTENCE_SILENCE_MS"
+    Default="300"
+    Mode=""
+    Description="Milliseconds of silence injected between sentences for natural pacing. Set to 0 to disable. Higher values sound more natural; lower values feel snappier."
+    Type="Variable"
+    Display="advanced"
+    Required="false"
+    Mask="false"/>
+  <Config
+    Name="Strip Leading Silence"
+    Target="TTS_STRIP_LEADING_SILENCE"
+    Default="true"
+    Mode=""
+    Description="Strip silent audio prefix from TTS output (true/false). Piper sometimes produces a brief leading silence that adds perceived latency. Stripping it makes speech start instantly."
+    Type="Variable"
+    Display="advanced"
+    Required="false"
+    Mask="false"/>
+  <Config
     Name="STT Model Size"
     Target="STT_MODEL_SIZE"
     Default="base"

@@ -53,6 +53,46 @@ def _split_first_sentence(buffer: str) -> tuple[str | None, str]:
     return None, buffer
 
 
+# Maximum characters before we force-split even without sentence punctuation.
+# Prevents TTS starvation on very long run-on text (lists with only commas,
+# semicolons, or no punctuation at all).
+_MAX_SENTENCE_CHARS = 300
+
+# Clause-level breaks where we can safely split for TTS.
+_CLAUSE_BREAK_RE = re.compile(r"[,;:\u2014\u2013-]\s")
+
+
+def _force_split_long(buffer: str) -> tuple[str | None, str]:
+    """Force-split a buffer that exceeds *_MAX_SENTENCE_CHARS*.
+
+    Only called when ``_split_first_sentence`` found no sentence boundary.
+    Splits at the last comma, semicolon, colon, or dash before the limit,
+    falling back to the last word boundary.
+
+    Returns ``(chunk, remaining)`` if the buffer is long enough to split,
+    or ``(None, buffer)`` if it's still under the limit.
+    """
+    if len(buffer) < _MAX_SENTENCE_CHARS:
+        return None, buffer
+
+    window = buffer[:_MAX_SENTENCE_CHARS]
+
+    # Prefer the last clause-level break (comma, semicolon, colon, dash)
+    best = -1
+    for m in _CLAUSE_BREAK_RE.finditer(window):
+        best = m.end()
+    if best > 0:
+        return buffer[:best].strip(), buffer[best:]
+
+    # Fallback: last word boundary
+    last_space = window.rfind(" ")
+    if last_space > 0:
+        return buffer[:last_space].strip(), buffer[last_space + 1:]
+
+    # No break at all (single huge word?) — hard split
+    return buffer[:_MAX_SENTENCE_CHARS], buffer[_MAX_SENTENCE_CHARS:]
+
+
 class _BridgeVoiceProtocol(discord.VoiceProtocol):
     """Minimal VoiceProtocol that captures voice credentials from the gateway.
 
@@ -533,9 +573,15 @@ class VoiceSession:
             # the next one (and possibly several more) are already synthesized
             # and waiting in the audio queue.  This eliminates the ~1.4s
             # dead-air gap that occurs with sequential TTS + playback.
+            #
+            # Note: Piper (VITS) internally splits text into sentences and
+            # synthesizes each one independently — there is zero cross-sentence
+            # context, so batching sentences together does NOT improve quality.
+            # Each sentence is sent to TTS as soon as it arrives.
             _SENTINEL = object()
             sentence_queue: asyncio.Queue = asyncio.Queue()
             audio_queue: asyncio.Queue = asyncio.Queue()
+            sentence_silence_s = self.config.tts.sentence_silence_ms / 1000.0
 
             async def _tts_worker() -> None:
                 """Synthesize sentences as fast as they arrive."""
@@ -551,7 +597,7 @@ class VoiceSession:
                         await audio_queue.put(audio)
 
             async def _play_worker() -> None:
-                """Play pre-synthesized audio clips sequentially."""
+                """Play pre-synthesized audio clips with inter-sentence pauses."""
                 nonlocal first_sentence
                 while True:
                     item = await audio_queue.get()
@@ -573,6 +619,9 @@ class VoiceSession:
                         log.exception("Failed to play audio via bridge")
                     if self._sink:
                         self._sink.drain()
+                    # Natural pause between sentences (configurable)
+                    if sentence_silence_s > 0:
+                        await asyncio.sleep(sentence_silence_s)
 
             tts_task = asyncio.create_task(_tts_worker())
             play_task = asyncio.create_task(_play_worker())
@@ -588,19 +637,28 @@ class VoiceSession:
                     sentence_buf += delta
                     full_response += delta
 
-                    # Extract complete sentences and feed them to the TTS worker
+                    # Extract complete sentences and feed them to the TTS worker.
+                    # Falls back to force-splitting at clause boundaries when a
+                    # single "sentence" exceeds _MAX_SENTENCE_CHARS.
                     while True:
                         sentence, rest = _split_first_sentence(sentence_buf)
                         if sentence is None:
-                            break
+                            # No sentence boundary — force split if too long
+                            sentence, rest = _force_split_long(sentence_buf)
+                            if sentence is None:
+                                break
+                            log.debug(
+                                "Force-split long text at %d chars: %r",
+                                len(sentence), sentence[:100],
+                            )
+                        else:
+                            log.debug(
+                                "Sentence ready (%.3fs from LLM start, %d chars): %r",
+                                time.monotonic() - llm_start,
+                                len(sentence),
+                                sentence[:100],
+                            )
                         sentence_buf = rest
-
-                        log.debug(
-                            "Sentence ready (%.3fs from LLM start, %d chars): %r",
-                            time.monotonic() - llm_start,
-                            len(sentence),
-                            sentence[:100],
-                        )
                         await sentence_queue.put(sentence)
 
                 # Flush any remaining text that didn't end with sentence punctuation

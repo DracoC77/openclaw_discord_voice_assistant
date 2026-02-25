@@ -62,6 +62,66 @@ _EMOJI_RE = re.compile(
 )
 
 
+# Amplitude threshold for detecting "silence" in 16-bit PCM.
+# Samples with abs(value) below this are considered silent.
+_SILENCE_THRESHOLD = 256
+
+
+def _strip_leading_silence(wav_bytes: bytes) -> bytes:
+    """Strip leading silent samples from WAV audio.
+
+    Piper TTS sometimes produces a brief leading silence that adds
+    perceived latency to the first sentence.  This detects and removes
+    the silent prefix so audio starts immediately.
+    """
+    try:
+        buf = io.BytesIO(wav_bytes)
+        with wave.open(buf, "rb") as wf:
+            nchannels = wf.getnchannels()
+            sampwidth = wf.getsampwidth()
+            framerate = wf.getframerate()
+            frames = wf.readframes(wf.getnframes())
+
+        if sampwidth != 2:
+            # Only handle 16-bit PCM (the only format Piper/ElevenLabs produce)
+            return wav_bytes
+
+        frame_size = sampwidth * nchannels
+        first_audible = 0
+
+        for i in range(0, len(frames), frame_size):
+            audible = False
+            for ch in range(nchannels):
+                sample = struct.unpack_from("<h", frames, i + ch * sampwidth)[0]
+                if abs(sample) >= _SILENCE_THRESHOLD:
+                    audible = True
+                    break
+            if audible:
+                first_audible = i
+                break
+        else:
+            # Entire clip is silence — return original unchanged
+            return wav_bytes
+
+        if first_audible == 0:
+            return wav_bytes
+
+        trimmed = frames[first_audible:]
+        out = io.BytesIO()
+        with wave.open(out, "wb") as wf:
+            wf.setnchannels(nchannels)
+            wf.setsampwidth(sampwidth)
+            wf.setframerate(framerate)
+            wf.writeframes(trimmed)
+
+        stripped_ms = (first_audible / frame_size) / framerate * 1000
+        log.debug("Stripped %.0fms leading silence from TTS audio", stripped_ms)
+        return out.getvalue()
+    except Exception:
+        log.debug("Failed to strip leading silence, using original", exc_info=True)
+        return wav_bytes
+
+
 def _clean_for_tts(text: str) -> str:
     """Strip markdown formatting and emoji so TTS reads naturally."""
     for pattern, replacement in _MARKDOWN_PATTERNS:
@@ -205,6 +265,7 @@ class TextToSpeech:
         self.config = config
         self._elevenlabs_client = None
         self._resolved_model: str | None = None
+        self._strip_silence = config.strip_leading_silence
 
     async def warm_up(self) -> None:
         """Pre-resolve the TTS model so the first synthesis isn't delayed."""
@@ -253,6 +314,8 @@ class TextToSpeech:
             else:
                 result = await self._synthesize_local(text)
             elapsed = time.monotonic() - t0
+            if result and self._strip_silence:
+                result = _strip_leading_silence(result)
             if result:
                 log.debug(
                     "TTS synthesis complete: provider=%s, %d bytes, %.3fs",
