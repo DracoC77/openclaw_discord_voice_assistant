@@ -430,7 +430,6 @@ See [`.env.example`](.env.example) for all available options with comments.
 | `ELEVENLABS_VOICE_ID` | No | `21m00Tcm4TlvDq8ikWAM` | ElevenLabs voice ID |
 | `TTS_SENTENCE_SILENCE_MS` | No | `300` | Silence between sentences in ms (0 = disable) |
 | `TTS_STRIP_LEADING_SILENCE` | No | `true` | Strip silent prefix from TTS audio (reduces perceived latency) |
-| `TTS_BUFFER_THRESHOLD` | No | `2` | Buffered clips before batching sentences for better prosody |
 
 ### Voice Bridge (DAVE E2EE)
 

@@ -574,20 +574,17 @@ class VoiceSession:
             # and waiting in the audio queue.  This eliminates the ~1.4s
             # dead-air gap that occurs with sequential TTS + playback.
             #
-            # Buffer-aware batching: after the first sentence (which is always
-            # sent immediately for lowest latency), the TTS worker checks if
-            # enough audio is already buffered.  If so, it batches consecutive
-            # sentences together before synthesizing — giving the TTS engine
-            # more context for better prosody and more natural intonation.
+            # Note: Piper (VITS) internally splits text into sentences and
+            # synthesizes each one independently — there is zero cross-sentence
+            # context, so batching sentences together does NOT improve quality.
+            # Each sentence is sent to TTS as soon as it arrives.
             _SENTINEL = object()
             sentence_queue: asyncio.Queue = asyncio.Queue()
             audio_queue: asyncio.Queue = asyncio.Queue()
-            buffer_threshold = self.config.tts.buffer_threshold
             sentence_silence_s = self.config.tts.sentence_silence_ms / 1000.0
 
             async def _tts_worker() -> None:
-                """Synthesize sentences, batching when audio is well-buffered."""
-                first_tts = True
+                """Synthesize sentences as fast as they arrive."""
                 while True:
                     item = await sentence_queue.get()
                     if item is _SENTINEL:
@@ -595,34 +592,9 @@ class VoiceSession:
                         break
                     if not self.is_active:
                         continue
-
-                    text = item
-
-                    # After the first sentence, if we already have enough
-                    # audio buffered, batch more sentences for better prosody.
-                    if not first_tts and audio_queue.qsize() >= buffer_threshold:
-                        while True:
-                            try:
-                                peek = sentence_queue.get_nowait()
-                            except asyncio.QueueEmpty:
-                                break
-                            if peek is _SENTINEL:
-                                # Synthesize accumulated text, then propagate end
-                                audio = await self._synthesize(text)
-                                if audio:
-                                    await audio_queue.put(audio)
-                                await audio_queue.put(_SENTINEL)
-                                return
-                            text += " " + peek
-                        log.debug(
-                            "Batched sentences for prosody (%d chars): %r",
-                            len(text), text[:120],
-                        )
-
-                    audio = await self._synthesize(text)
+                    audio = await self._synthesize(item)
                     if audio:
                         await audio_queue.put(audio)
-                        first_tts = False
 
             async def _play_worker() -> None:
                 """Play pre-synthesized audio clips with inter-sentence pauses."""

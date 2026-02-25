@@ -140,16 +140,6 @@
     Required="false"
     Mask="false"/>
   <Config
-    Name="TTS Buffer Threshold"
-    Target="TTS_BUFFER_THRESHOLD"
-    Default="2"
-    Mode=""
-    Description="Number of pre-synthesized audio clips buffered before batching consecutive sentences for better TTS prosody. Higher = better quality, lower = lower latency. First sentence is always immediate."
-    Type="Variable"
-    Display="advanced"
-    Required="false"
-    Mask="false"/>
-  <Config
     Name="STT Model Size"
     Target="STT_MODEL_SIZE"
     Default="base"
