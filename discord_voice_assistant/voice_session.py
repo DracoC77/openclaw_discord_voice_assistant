@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 import discord
 
-from discord_voice_assistant.audio.sink import StreamingSink
+from discord_voice_assistant.audio.sink import StreamingSink, PLAYBACK_SPEECH_THRESHOLD
 from discord_voice_assistant.audio.stt import SpeechToText
 from discord_voice_assistant.audio.tts import TextToSpeech, generate_thinking_sound
 from discord_voice_assistant.audio.wake_word import WakeWordDetector
@@ -202,6 +202,8 @@ class VoiceSession:
         self._thinking_sound: bytes | None = None
         self._thinking_temp_path: str | None = None
         self._is_playing: bool = False
+        self._interrupted: bool = False
+        self._interrupted_partial_response: str | None = None
         self._guild_id_str: str = str(channel.guild.id)
 
     @property
@@ -326,9 +328,28 @@ class VoiceSession:
         The bridge already segments audio by silence (EndBehaviorType.AfterSilence),
         so each message is a complete speech utterance. Use process_segment()
         to skip the sink's VAD and process immediately.
+
+        During bot playback, checks for barge-in: if the segment is loud
+        enough to be real speech (above PLAYBACK_SPEECH_THRESHOLD), the
+        current response is interrupted so the user's speech can be processed.
         """
         if not self.is_active or not self._sink:
             return
+
+        # Barge-in: detect real speech during bot playback
+        if self._sink.playback_active and not self._interrupted:
+            rms = StreamingSink._compute_rms(pcm)
+            if rms > PLAYBACK_SPEECH_THRESHOLD:
+                log.info(
+                    "Barge-in detected from user %d (rms=%.0f), interrupting response",
+                    user_id, rms,
+                )
+                self._interrupted = True
+                try:
+                    await self.bridge.stop_playing(self._guild_id_str)
+                except Exception:
+                    log.debug("Error stopping playback for barge-in", exc_info=True)
+
         self._sink.process_segment(user_id, pcm)
 
     async def _on_bridge_reconnect(self) -> None:
@@ -519,6 +540,8 @@ class VoiceSession:
         if not self.is_active:
             return
 
+        self._interrupted = False
+
         log.debug(
             "Pipeline START for user %d: %d bytes (%.2fs audio at %dHz)",
             user_id, len(audio_data), audio_duration, sample_rate,
@@ -556,6 +579,22 @@ class VoiceSession:
             auth_store = self.bot.auth_store
             user_session_id = self._get_or_create_user_session(user_id)
             user_agent_id = auth_store.get_agent_id(user_id)
+
+            # If the previous response was interrupted by barge-in,
+            # prepend context so OpenClaw knows the conversation was cut short.
+            interrupted_context = ""
+            if self._interrupted_partial_response:
+                interrupted_context = (
+                    "(The user interrupted your previous response. "
+                    f"You had said: \"{self._interrupted_partial_response}\" "
+                    "before being cut off. The user may want to redirect or follow up.) "
+                )
+                self._interrupted_partial_response = None
+
+            # Raise the speech threshold during playback to filter
+            # echo/ambient noise while still allowing loud barge-in speech.
+            if self._sink:
+                self._sink.set_playback_active(True)
 
             await self._start_thinking_sound()
 
@@ -603,6 +642,8 @@ class VoiceSession:
                     item = await audio_queue.get()
                     if item is _SENTINEL:
                         break
+                    if self._interrupted:
+                        continue  # Discard remaining audio after barge-in
                     if first_sentence:
                         await self._stop_thinking_sound()
                         first_sentence = False
@@ -617,6 +658,8 @@ class VoiceSession:
                         )
                     except Exception:
                         log.exception("Failed to play audio via bridge")
+                    if self._interrupted:
+                        continue  # Playback was stopped by barge-in
                     if self._sink:
                         self._sink.drain()
                     # Natural pause between sentences (configurable)
@@ -626,14 +669,19 @@ class VoiceSession:
             tts_task = asyncio.create_task(_tts_worker())
             play_task = asyncio.create_task(_play_worker())
 
+            effective_text = interrupted_context + text if interrupted_context else text
             try:
                 async for delta in self._openclaw.send_message_stream(
                     user_session_id,
-                    text,
+                    effective_text,
                     sender_name=speaker_name,
                     sender_id=str(user_id),
                     agent_id=user_agent_id,
                 ):
+                    if self._interrupted:
+                        log.info("Pipeline interrupted by barge-in, stopping LLM stream")
+                        break
+
                     sentence_buf += delta
                     full_response += delta
 
@@ -663,13 +711,21 @@ class VoiceSession:
 
                 # Flush any remaining text that didn't end with sentence punctuation
                 remaining = sentence_buf.strip()
-                if remaining:
+                if remaining and not self._interrupted:
                     log.debug(
                         "Flushing remaining buffer (%d chars): %r",
                         len(remaining),
                         remaining[:100],
                     )
                     await sentence_queue.put(remaining)
+
+                # Save partial response for context if interrupted
+                if self._interrupted and full_response:
+                    self._interrupted_partial_response = full_response
+                    log.debug(
+                        "Saved interrupted partial response (%d chars)",
+                        len(full_response),
+                    )
             finally:
                 # Always stop thinking sound even if the stream errors out
                 if first_sentence:
@@ -678,23 +734,31 @@ class VoiceSession:
                 await sentence_queue.put(_SENTINEL)
                 await tts_task
                 await play_task
+                # Restore normal speech threshold
+                if self._sink:
+                    self._sink.set_playback_active(False)
 
             llm_elapsed = time.monotonic() - llm_start
 
             if not full_response:
-                log.warning(
-                    "OpenClaw stream returned no content for %r (%.3fs)",
-                    text[:200],
-                    llm_elapsed,
-                )
+                if not self._interrupted:
+                    log.warning(
+                        "OpenClaw stream returned no content for %r (%.3fs)",
+                        text[:200],
+                        llm_elapsed,
+                    )
                 return
 
-            log.info("[Assistant] %s", full_response)
+            if self._interrupted:
+                log.info("[Assistant] (interrupted) %s", full_response)
+            else:
+                log.info("[Assistant] %s", full_response)
 
             total_elapsed = time.monotonic() - pipeline_start
             log.debug(
-                "Pipeline END for user %d: stt=%.3fs stream+tts=%.3fs total=%.3fs",
+                "Pipeline END for user %d: stt=%.3fs stream+tts=%.3fs total=%.3fs%s",
                 user_id, stt_elapsed, llm_elapsed, total_elapsed,
+                " (interrupted)" if self._interrupted else "",
             )
 
     async def _synthesize(self, text: str) -> bytes | None:
