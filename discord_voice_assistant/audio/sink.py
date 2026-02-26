@@ -27,6 +27,12 @@ TARGET_SAMPLE_RATE = 16000
 CHUNK_DURATION = 3.0
 # Silence threshold - below this RMS, consider it silence
 SILENCE_THRESHOLD = 300
+# Higher threshold used while the bot is playing audio.  During playback,
+# microphone pickup (echo, ambient noise, road noise) can produce segments
+# with RMS 200-400 which Whisper may hallucinate text from, triggering a
+# cascade of self-responses.  Real speech directed at the mic typically
+# registers RMS 1500+ even in noisy environments.
+PLAYBACK_SPEECH_THRESHOLD = 1200
 # How long to wait after speech stops before processing (voice activity detection)
 VAD_SILENCE_DURATION = 1.0
 # Maximum buffer size per user (bytes) — ~120s of 48kHz stereo 16-bit audio
@@ -66,6 +72,14 @@ class StreamingSink:
         self._silence_tasks: dict[int, asyncio.Task] = {}
         # Independent pipeline tasks that must NOT be canceled by new speech
         self._pipeline_tasks: set[asyncio.Task] = set()
+        # True while the bot is playing TTS audio.  When active, only
+        # segments exceeding PLAYBACK_SPEECH_THRESHOLD are accepted
+        # (filters echo/ambient noise, allows real barge-in speech).
+        self._playback_active: bool = False
+        # Monotonically increasing counter bumped by drain().  Pipeline
+        # tasks capture the current epoch; if drain() fires before they
+        # start processing, the epoch mismatch causes them to be skipped.
+        self._epoch: int = 0
 
     def write(self, user_id: int, pcm: bytes) -> None:
         """Process a chunk of PCM audio from a user.
@@ -122,6 +136,22 @@ class StreamingSink:
                 )
                 self._start_silence_check(user_id)
 
+    @property
+    def playback_active(self) -> bool:
+        """Whether the bot is currently playing TTS audio."""
+        return self._playback_active
+
+    def set_playback_active(self, active: bool) -> None:
+        """Toggle playback state, which raises the speech detection threshold."""
+        self._playback_active = active
+        if active:
+            log.debug(
+                "Playback active: speech threshold raised to %d",
+                PLAYBACK_SPEECH_THRESHOLD,
+            )
+        else:
+            log.debug("Playback ended: speech threshold restored to %d", SILENCE_THRESHOLD)
+
     def process_segment(self, user_id: int, pcm: bytes) -> None:
         """Process a complete speech segment from the voice bridge.
 
@@ -141,16 +171,27 @@ class StreamingSink:
             user_id, len(pcm), audio_secs, rms,
         )
 
-        if rms <= SILENCE_THRESHOLD:
-            log.debug("Segment is silence (rms=%.0f), skipping", rms)
+        threshold = PLAYBACK_SPEECH_THRESHOLD if self._playback_active else SILENCE_THRESHOLD
+        if rms <= threshold:
+            if self._playback_active:
+                log.debug(
+                    "Segment during playback below speech threshold "
+                    "(rms=%.0f, need>%d), skipping",
+                    rms, threshold,
+                )
+            else:
+                log.debug("Segment is silence (rms=%.0f), skipping", rms)
             return
 
-        # Schedule processing as an independent task
-        task = self._loop.create_task(self._process_raw_segment(user_id, pcm))
+        # Schedule processing as an independent task.
+        # Capture the current epoch so stale tasks (created before a drain)
+        # can be detected and skipped in _process_raw_segment.
+        epoch = self._epoch
+        task = self._loop.create_task(self._process_raw_segment(user_id, pcm, epoch))
         self._pipeline_tasks.add(task)
         task.add_done_callback(self._pipeline_tasks.discard)
 
-    async def _process_raw_segment(self, user_id: int, raw: bytes) -> None:
+    async def _process_raw_segment(self, user_id: int, raw: bytes, epoch: int) -> None:
         """Downsample and pass a complete segment to the pipeline callback."""
         log.debug(
             "Processing segment for user %d: %d bytes raw (%.2fs at 48kHz stereo)",
@@ -169,6 +210,15 @@ class StreamingSink:
         if len(mono_16k) < min_bytes:
             log.debug(
                 "Segment too short for user %d (%.2fs), skipping", user_id, audio_duration,
+            )
+            return
+
+        # A drain() since this task was created means the audio is stale
+        # (e.g. echo captured during playback that was drained after).
+        if epoch != self._epoch:
+            log.debug(
+                "Segment for user %d is stale (epoch %d vs current %d), skipping",
+                user_id, epoch, self._epoch,
             )
             return
 
@@ -312,13 +362,16 @@ class StreamingSink:
         that accumulated during playback (e.g. echo from users' microphones
         picking up the bot's speech).  Does NOT cancel in-progress pipeline
         tasks — only pending silence timers and unprocessed buffers.
+        The epoch increment causes pending pipeline tasks to detect
+        staleness and skip processing.
         """
+        self._epoch += 1
         for uid in list(self._silence_tasks):
             self._cancel_silence_task(uid)
         self._buffers.clear()
         self._speaking.clear()
         self._last_speech.clear()
-        log.debug("Audio drain: cleared all buffers and speaking states")
+        log.debug("Audio drain: cleared all buffers and speaking states (epoch=%d)", self._epoch)
 
     def cleanup(self) -> None:
         """Clean up resources."""
