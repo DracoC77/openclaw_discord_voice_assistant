@@ -13,6 +13,7 @@ from discord_voice_assistant.auth_store import AuthStore
 from discord_voice_assistant.commands.admin import AdminCommands
 from discord_voice_assistant.commands.general import GeneralCommands
 from discord_voice_assistant.commands.voice import VoiceCommands
+from discord_voice_assistant.integrations.webhook_server import WebhookServer
 from discord_voice_assistant.voice_bridge import VoiceBridgeClient
 from discord_voice_assistant.voice_manager import VoiceManager
 
@@ -56,6 +57,7 @@ class VoiceAssistantBot(commands.Bot):
         )
 
         self.voice_manager = VoiceManager(self, config, self.bridge)
+        self._webhook_server: WebhookServer | None = None
         self._bridge_health_task: asyncio.Task | None = None
 
     async def on_ready(self) -> None:
@@ -96,6 +98,15 @@ class VoiceAssistantBot(commands.Bot):
             )
 
         await self.voice_manager.initialize()
+
+        # Start webhook server for proactive voice
+        if self.config.webhook.enabled and self._webhook_server is None:
+            self._webhook_server = WebhookServer(self, self.config)
+            try:
+                await self._webhook_server.start()
+            except Exception:
+                log.exception("Failed to start webhook server")
+                self._webhook_server = None
 
         # Register cogs (only on first ready — reconnects also trigger on_ready)
         if not self.cogs:
@@ -147,6 +158,8 @@ class VoiceAssistantBot(commands.Bot):
         if self._bridge_health_task:
             self._bridge_health_task.cancel()
             self._bridge_health_task = None
+        if self._webhook_server:
+            await self._webhook_server.stop()
         await self.voice_manager.cleanup()
         await self.bridge.stop()
         await super().close()

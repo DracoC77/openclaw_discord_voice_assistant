@@ -13,8 +13,9 @@
     Discord Voice Assistant for OpenClaw.
     Joins Discord voice channels, listens for voice commands,
     communicates with your OpenClaw AI agent, and speaks responses back.
-    Supports wake word detection, auto-join behavior, and Discord DAVE E2EE
-    via an embedded Node.js voice bridge.
+    Supports wake word detection, auto-join behavior, proactive voice via webhook
+    (your agent can speak unprompted), and Discord DAVE E2EE via an embedded
+    Node.js voice bridge.
   </Overview>
   <Category>Tools: AI</Category>
   <WebUI/>
@@ -348,6 +349,66 @@
     Type="Path"
     Display="always"
     Required="true"
+    Mask="false"/>
+  <Config
+    Name="Webhook Enabled"
+    Target="WEBHOOK_ENABLED"
+    Default="true"
+    Mode=""
+    Description="Enable the webhook server for proactive voice (allows your OpenClaw agent to speak unprompted)"
+    Type="Variable"
+    Display="always"
+    Required="false"
+    Mask="false"/>
+  <Config
+    Name="Webhook Port"
+    Target="WEBHOOK_PORT"
+    Default="18790"
+    Mode=""
+    Description="HTTP port for the proactive voice webhook server"
+    Type="Variable"
+    Display="advanced"
+    Required="false"
+    Mask="false"/>
+  <Config
+    Name="Webhook Token"
+    Target="WEBHOOK_TOKEN"
+    Default=""
+    Mode=""
+    Description="Bearer token for webhook authentication (recommended — leave empty to disable auth)"
+    Type="Variable"
+    Display="always"
+    Required="false"
+    Mask="true"/>
+  <Config
+    Name="Webhook Default Mode"
+    Target="WEBHOOK_DEFAULT_MODE"
+    Default="auto"
+    Mode=""
+    Description="Default delivery mode for proactive voice: auto (try live then fallback), live (voice channel only), voicemail (DM voice message), notify (DM text + queue)"
+    Type="Variable"
+    Display="advanced"
+    Required="false"
+    Mask="false"/>
+  <Config
+    Name="Webhook Notify User IDs"
+    Target="WEBHOOK_NOTIFY_USER_IDS"
+    Default=""
+    Mode=""
+    Description="Comma-separated Discord user IDs for voicemail/notify delivery. Falls back to the first user in the auth store if empty."
+    Type="Variable"
+    Display="advanced"
+    Required="false"
+    Mask="false"/>
+  <Config
+    Name="Webhook Port"
+    Target="18790"
+    Default="18790"
+    Mode="tcp"
+    Description="Proactive voice webhook HTTP port"
+    Type="Port"
+    Display="always"
+    Required="false"
     Mask="false"/>
   <Config
     Name="Logs Directory"

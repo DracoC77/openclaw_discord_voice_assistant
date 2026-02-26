@@ -6,10 +6,19 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
+import aiohttp
 import discord
 
 from discord_voice_assistant.audio.stt import SpeechToText
-from discord_voice_assistant.voice_session import VoiceSession
+from discord_voice_assistant.audio.tts import TextToSpeech
+from discord_voice_assistant.audio.voicemail import (
+    calculate_waveform,
+    create_dm_channel,
+    get_wav_duration,
+    send_voice_message,
+    wav_to_ogg_opus,
+)
+from discord_voice_assistant.voice_session import PRIORITY_NORMAL, VoiceSession
 
 if TYPE_CHECKING:
     from discord_voice_assistant.bot import VoiceAssistantBot
@@ -33,6 +42,12 @@ class VoiceManager:
         self._guild_locks: dict[int, asyncio.Lock] = {}
         # Shared STT instance that persists across sessions (when STT_PRELOAD=true)
         self._shared_stt: SpeechToText | None = None
+        # Pending notify messages: user_id -> [(text, priority)]
+        self._pending_notify: dict[int, list[tuple[str, int]]] = {}
+        # Shared TTS instance for voicemail (no active session needed)
+        self._shared_tts: TextToSpeech | None = None
+        # Shared HTTP session for Discord REST API calls (voicemail)
+        self._http: aiohttp.ClientSession | None = None
 
     def _get_guild_lock(self, guild_id: int) -> asyncio.Lock:
         """Get or create a per-guild lock for serializing join/leave operations."""
@@ -73,6 +88,9 @@ class VoiceManager:
         if after.channel and (before.channel != after.channel):
             if self.config.voice.auto_join and self.is_authorized(member.id):
                 await self._try_join(member, after.channel)
+
+            # Deliver any pending notify messages for this user
+            await self._deliver_pending_notify(member)
 
         # User left a voice channel (or switched)
         if before.channel and (before.channel != after.channel):
@@ -256,8 +274,268 @@ class VoiceManager:
         """Disconnect from all voice channels."""
         for guild_id in list(self._sessions):
             await self.leave_channel(guild_id)
+        if self._http and not self._http.closed:
+            await self._http.close()
 
     def notify_activity(self, guild_id: int) -> None:
         """Reset inactivity timer when there is voice activity."""
         if guild_id in self._sessions:
             self._reset_inactivity_timer(guild_id)
+
+    # -- Proactive message routing ------------------------------------------------
+
+    async def handle_proactive_message(
+        self,
+        text: str,
+        mode: str = "auto",
+        priority: int = PRIORITY_NORMAL,
+        guild_id: int | None = None,
+        channel_id: int | None = None,
+        user_id: int | None = None,
+    ) -> dict:
+        """Route a proactive message to the appropriate delivery method.
+
+        Returns a dict with ``status`` ("ok" or "error") and ``delivery``
+        indicating which method was used.
+        """
+        if mode == "auto":
+            return await self._deliver_auto(
+                text, priority, guild_id, channel_id, user_id,
+            )
+        elif mode == "live":
+            return await self._deliver_live(text, priority, guild_id)
+        elif mode == "voicemail":
+            return await self._deliver_voicemail(text, user_id)
+        elif mode == "notify":
+            return await self._deliver_notify(text, priority, user_id, guild_id)
+        else:
+            return {"status": "error", "error": f"unknown mode: {mode}"}
+
+    async def _deliver_auto(
+        self,
+        text: str,
+        priority: int,
+        guild_id: int | None,
+        channel_id: int | None,
+        user_id: int | None,
+    ) -> dict:
+        """Auto-mode: try live, fall back to notify, fall back to voicemail."""
+        # Try live delivery first
+        session = self._find_session_with_listeners(guild_id)
+        if session:
+            await session.enqueue_proactive(text, priority)
+            return {"status": "ok", "delivery": "live"}
+
+        # Resolve user_id from config if not provided
+        user_id = self._resolve_user_id(user_id)
+        if not user_id:
+            return {
+                "status": "error",
+                "error": (
+                    "no active voice session with listeners, and no user_id "
+                    "provided for fallback (set WEBHOOK_NOTIFY_USER_IDS or "
+                    "pass user_id in the request)"
+                ),
+            }
+
+        # Try notify (DM + queue for when user joins)
+        notify_result = await self._deliver_notify(
+            text, priority, user_id, guild_id,
+        )
+        if notify_result.get("status") == "ok":
+            return notify_result
+
+        # Fall back to voicemail
+        return await self._deliver_voicemail(text, user_id)
+
+    async def _deliver_live(
+        self, text: str, priority: int, guild_id: int | None,
+    ) -> dict:
+        """Deliver a message via the active voice session."""
+        session = self._find_session_with_listeners(guild_id)
+        if not session:
+            return {
+                "status": "error",
+                "error": "no active voice session with listeners",
+            }
+        await session.enqueue_proactive(text, priority)
+        return {"status": "ok", "delivery": "live"}
+
+    async def _deliver_voicemail(
+        self, text: str, user_id: int | None,
+    ) -> dict:
+        """Generate TTS and send as a Discord voice message to the user's DM."""
+        user_id = self._resolve_user_id(user_id)
+        if not user_id:
+            return {
+                "status": "error",
+                "error": "user_id required for voicemail delivery",
+            }
+
+        bot_token = self.config.discord.token
+        http = await self._get_http()
+
+        # Create DM channel
+        dm_channel_id = await create_dm_channel(http, bot_token, user_id)
+        if not dm_channel_id:
+            return {
+                "status": "error",
+                "error": f"could not create DM channel with user {user_id}",
+            }
+
+        # Generate TTS audio
+        tts = await self._get_shared_tts()
+        wav_bytes = await tts.synthesize(text)
+        if not wav_bytes:
+            return {"status": "error", "error": "TTS synthesis failed"}
+
+        # Convert to OGG Opus
+        ogg_bytes = await wav_to_ogg_opus(wav_bytes)
+        if not ogg_bytes:
+            return {"status": "error", "error": "WAV to OGG conversion failed"}
+
+        # Calculate waveform and duration
+        duration = get_wav_duration(wav_bytes)
+        waveform = calculate_waveform(wav_bytes)
+
+        # Send voice message
+        success = await send_voice_message(
+            http, bot_token, dm_channel_id, ogg_bytes, duration, waveform,
+        )
+        if success:
+            log.info("Voicemail delivered to user %d (%.1fs)", user_id, duration)
+            return {"status": "ok", "delivery": "voicemail"}
+        return {"status": "error", "error": "failed to send voice message"}
+
+    async def _deliver_notify(
+        self,
+        text: str,
+        priority: int,
+        user_id: int | None,
+        guild_id: int | None,
+    ) -> dict:
+        """Send a DM notification and queue the message for when the user joins."""
+        user_id = self._resolve_user_id(user_id)
+        if not user_id:
+            return {
+                "status": "error",
+                "error": "user_id required for notify delivery",
+            }
+
+        # Queue the message for when the user joins a voice channel
+        if user_id not in self._pending_notify:
+            self._pending_notify[user_id] = []
+        self._pending_notify[user_id].append((text, priority))
+        log.info(
+            "Queued notify message for user %d (%d pending)",
+            user_id, len(self._pending_notify[user_id]),
+        )
+
+        # Send a DM telling the user to join voice
+        try:
+            user = self.bot.get_user(user_id) or await self.bot.fetch_user(user_id)
+            # Find a voice channel to suggest
+            channel_name = self._suggest_voice_channel(guild_id)
+            dm_text = (
+                "I have something to tell you! "
+                f"Join **{channel_name}** to hear it."
+                if channel_name
+                else "I have something to tell you! Join a voice channel to hear it."
+            )
+            await user.send(dm_text)
+            log.info("Notify DM sent to user %d", user_id)
+        except discord.Forbidden:
+            log.warning(
+                "Cannot DM user %d (DMs disabled) — message queued for "
+                "when they join voice",
+                user_id,
+            )
+        except Exception:
+            log.exception("Failed to send notify DM to user %d", user_id)
+
+        return {"status": "ok", "delivery": "notify"}
+
+    async def _deliver_pending_notify(self, member: discord.Member) -> None:
+        """Deliver any pending notify messages when a user joins a voice channel."""
+        pending = self._pending_notify.pop(member.id, [])
+        if not pending:
+            return
+
+        guild_id = member.guild.id
+        session = self._sessions.get(guild_id)
+        if not session or not session.is_active:
+            # Session might not be ready yet — wait briefly for auto-join to complete
+            await asyncio.sleep(2.0)
+            session = self._sessions.get(guild_id)
+
+        if not session or not session.is_active:
+            # Put messages back — they'll be delivered next time
+            self._pending_notify[member.id] = pending
+            log.warning(
+                "No active session to deliver %d pending notify messages for user %d",
+                len(pending), member.id,
+            )
+            return
+
+        log.info(
+            "Delivering %d pending notify messages to user %d",
+            len(pending), member.id,
+        )
+        for text, priority in pending:
+            await session.enqueue_proactive(text, priority)
+
+    # -- Helpers ------------------------------------------------------------------
+
+    def _find_session_with_listeners(
+        self, guild_id: int | None,
+    ) -> VoiceSession | None:
+        """Find an active session with human listeners."""
+        if guild_id and guild_id in self._sessions:
+            session = self._sessions[guild_id]
+            if session.is_active and session.has_listeners():
+                return session
+
+        # No guild specified or specified guild has no listeners — try any session
+        for session in self._sessions.values():
+            if session.is_active and session.has_listeners():
+                return session
+
+        return None
+
+    def _resolve_user_id(self, user_id: int | None) -> int | None:
+        """Resolve a user ID from the request, webhook config, or auth store."""
+        if user_id:
+            return user_id
+        notify_ids = self.config.webhook.notify_user_ids
+        if notify_ids:
+            return notify_ids[0]
+        # Fall back to first authorized user from the auth store
+        all_users = self.bot.auth_store.get_all_users()
+        if all_users:
+            return int(next(iter(all_users)))
+        return None
+
+    def _suggest_voice_channel(self, guild_id: int | None) -> str | None:
+        """Suggest a voice channel name for the notify DM."""
+        if guild_id:
+            guild = self.bot.get_guild(guild_id)
+            if guild and guild.voice_channels:
+                return guild.voice_channels[0].name
+
+        for guild in self.bot.guilds:
+            if guild.voice_channels:
+                return guild.voice_channels[0].name
+        return None
+
+    async def _get_shared_tts(self) -> TextToSpeech:
+        """Get or create a shared TTS instance for voicemail."""
+        if self._shared_tts is None:
+            self._shared_tts = TextToSpeech(self.config.tts)
+            await self._shared_tts.warm_up()
+        return self._shared_tts
+
+    async def _get_http(self) -> aiohttp.ClientSession:
+        """Get or create a shared HTTP session for Discord API calls."""
+        if self._http is None or self._http.closed:
+            self._http = aiohttp.ClientSession()
+        return self._http

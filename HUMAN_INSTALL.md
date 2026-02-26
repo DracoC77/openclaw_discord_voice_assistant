@@ -275,6 +275,24 @@ Synced N slash command(s)
    - Send it to your OpenClaw agent
    - Speak the response back
 
+## Step 6: Proactive Voice (Optional)
+
+The bot includes a webhook server that lets your OpenClaw agent speak to you
+unprompted — live in voice, as a DM voicemail, or as a notification to join voice.
+See [`PROACTIVE_VOICE_SETUP.md`](PROACTIVE_VOICE_SETUP.md) for full setup instructions.
+
+To generate a webhook token:
+```bash
+openssl rand -hex 32
+```
+Set the output as `WEBHOOK_TOKEN` in your `.env` and use the same value as
+`VOICE_WEBHOOK_TOKEN` on the OpenClaw side.
+
+Look for this line in the logs to confirm the webhook server is running:
+```
+Webhook server started on port 18790
+```
+
 ## Configuration Cheat Sheet
 
 These go in `/mnt/user/appdata/discord-voice-assistant/.env`:
@@ -303,6 +321,11 @@ These go in `/mnt/user/appdata/discord-voice-assistant/.env`:
 | `ADMIN_USER_IDS` | *(empty)* | Comma-separated Discord user IDs with admin role. Seeds on first run. |
 | `DEFAULT_AGENT_ID` | *(empty)* | Override default agent ID for voice (falls back to `OPENCLAW_AGENT_ID`). Per-user via `/voice-agent`. |
 | `REQUIRE_WAKE_WORD_FOR_UNAUTHORIZED` | `true` | Require wake word from non-authorized users |
+| `WEBHOOK_ENABLED` | `true` | Enable proactive voice webhook server |
+| `WEBHOOK_PORT` | `18790` | Webhook server port |
+| `WEBHOOK_TOKEN` | *(empty)* | Bearer token for webhook auth (recommended) |
+| `WEBHOOK_DEFAULT_MODE` | `auto` | Delivery mode: `auto`, `live`, `voicemail`, `notify` |
+| `WEBHOOK_NOTIFY_USER_IDS` | *(empty)* | Discord user IDs for voicemail/notify fallback |
 | `LOG_LEVEL` | `INFO` | Logging level: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `DEBUG_VOICE_PIPELINE` | `false` | Verbose debug logging for voice pipeline (timing, audio stats) |
 

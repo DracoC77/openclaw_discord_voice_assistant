@@ -381,6 +381,11 @@ docker compose up -d
 | `ADMIN_USER_IDS` | No | — | Comma-separated Discord user IDs with admin role (can manage users via slash commands) |
 | `DEFAULT_AGENT_ID` | No | — | Override default agent ID for voice sessions (falls back to `OPENCLAW_AGENT_ID`). Per-user overrides via `/voice-agent`. |
 | `REQUIRE_WAKE_WORD_FOR_UNAUTHORIZED` | No | `true` | Require wake word from non-authorized users |
+| `WEBHOOK_ENABLED` | No | `true` | Enable proactive voice webhook server |
+| `WEBHOOK_PORT` | No | `18790` | HTTP port for webhook server |
+| `WEBHOOK_TOKEN` | Recommended | — | Bearer token for webhook auth (`openssl rand -hex 32`) |
+| `WEBHOOK_DEFAULT_MODE` | No | `auto` | Delivery mode: `auto`, `live`, `voicemail`, `notify` |
+| `WEBHOOK_NOTIFY_USER_IDS` | No | — | Comma-separated Discord user IDs for voicemail/notify |
 | `LOG_LEVEL` | No | `INFO` | DEBUG/INFO/WARNING/ERROR |
 | `DEBUG_VOICE_PIPELINE` | No | `false` | Verbose voice pipeline debug logging |
 
@@ -412,6 +417,9 @@ services:
     restart: unless-stopped
     depends_on:
       - openclaw
+    ports:
+      # Proactive voice webhook (POST /speak)
+      - "${WEBHOOK_PORT:-18790}:${WEBHOOK_PORT:-18790}"
     environment:
       - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
       - OPENCLAW_URL=http://openclaw:18789
@@ -422,6 +430,8 @@ services:
       - TTS_PROVIDER=${TTS_PROVIDER:-local}
       - INACTIVITY_TIMEOUT=${INACTIVITY_TIMEOUT:-300}
       - WAKE_WORD_ENABLED=${WAKE_WORD_ENABLED:-false}
+      - WEBHOOK_ENABLED=${WEBHOOK_ENABLED:-true}
+      - WEBHOOK_TOKEN=${WEBHOOK_TOKEN:-}
       - DEBUG_VOICE_PIPELINE=${DEBUG_VOICE_PIPELINE:-false}
     volumes:
       - dva-data:/app/data

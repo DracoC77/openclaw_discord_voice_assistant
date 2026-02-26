@@ -9,6 +9,7 @@ import os
 import re
 import tempfile
 import time
+from dataclasses import dataclass, field as dc_field
 from typing import TYPE_CHECKING
 
 import discord
@@ -25,6 +26,20 @@ if TYPE_CHECKING:
     from discord_voice_assistant.voice_bridge import VoiceBridgeClient
 
 log = logging.getLogger(__name__)
+
+# Priority levels for proactive messages
+PRIORITY_URGENT = 0
+PRIORITY_NORMAL = 1
+
+
+@dataclass(order=True)
+class ProactiveMessage:
+    """A message queued for proactive voice delivery."""
+
+    priority: int
+    timestamp: float
+    text: str = dc_field(compare=False)
+
 
 # Matches sentence-ending punctuation followed by whitespace (or end of string).
 # Separate fixed-width negative lookbehinds avoid splitting on common
@@ -206,6 +221,12 @@ class VoiceSession:
         self._interrupted_partial_response: str | None = None
         self._guild_id_str: str = str(channel.guild.id)
 
+        # Proactive message queue (priority queue — lower number = higher priority)
+        self._proactive_queue: asyncio.PriorityQueue[ProactiveMessage] = (
+            asyncio.PriorityQueue()
+        )
+        self._queue_task: asyncio.Task | None = None
+
     @property
     def voice_client(self):
         """Compatibility property for voice_manager checks."""
@@ -315,6 +336,9 @@ class VoiceSession:
         self.bridge.register_speaking_callback(guild_id, self._on_speaking_start)
         self.bridge.register_reconnect_callback(guild_id, self._on_bridge_reconnect)
 
+        # Start the proactive message queue consumer
+        self._queue_task = asyncio.create_task(self._queue_consumer())
+
         log.info(
             "Voice session started in %s/%s (session: %s, DAVE: %s)",
             self.guild.name,
@@ -415,6 +439,14 @@ class VoiceSession:
         """Disconnect and clean up the session."""
         self.is_active = False
         guild_id = self._guild_id_str
+
+        # Stop the proactive message queue consumer
+        if self._queue_task and not self._queue_task.done():
+            self._queue_task.cancel()
+            try:
+                await self._queue_task
+            except asyncio.CancelledError:
+                pass
 
         self.bridge.unregister_audio_callback(guild_id)
         self.bridge.unregister_speaking_callback(guild_id)
@@ -841,3 +873,46 @@ class VoiceSession:
         # echo from users' microphones picking up the bot's speech.
         if self._sink:
             self._sink.drain()
+
+    # -- Proactive message queue --------------------------------------------------
+
+    async def enqueue_proactive(self, text: str, priority: int = PRIORITY_NORMAL) -> None:
+        """Add a proactive message to the playback queue."""
+        msg = ProactiveMessage(
+            priority=priority, timestamp=time.monotonic(), text=text
+        )
+        await self._proactive_queue.put(msg)
+        log.info(
+            "Proactive message queued (priority=%d, %d chars): %s",
+            priority, len(text), text[:80],
+        )
+
+    async def _queue_consumer(self) -> None:
+        """Background task that processes proactive messages from the queue."""
+        while self.is_active:
+            try:
+                msg = await asyncio.wait_for(
+                    self._proactive_queue.get(), timeout=1.0
+                )
+            except asyncio.TimeoutError:
+                continue
+            except asyncio.CancelledError:
+                break
+
+            if not self.is_active:
+                break
+
+            log.info(
+                "Processing proactive message (priority=%d): %s",
+                msg.priority, msg.text[:80],
+            )
+            async with self._processing_lock:
+                if self.is_active:
+                    await self._speak(msg.text)
+
+    def has_listeners(self) -> bool:
+        """Check if any non-bot users are in the voice channel."""
+        if not self._voice_client or not self._voice_client.is_connected():
+            return False
+        human_members = [m for m in self.channel.members if not m.bot]
+        return len(human_members) > 0
