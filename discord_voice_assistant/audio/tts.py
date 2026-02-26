@@ -215,16 +215,30 @@ def generate_thinking_sound(
     Creates a soft, repeating tonal pulse — gentle enough to signal
     "I'm working on it" without being annoying on loop.
 
+    The clip is snapped to an exact whole number of pulse cycles so the
+    waveform loops seamlessly.  The envelope uses ``(1 - cos)`` so
+    amplitude is zero at both ends of each cycle, eliminating clicks at
+    the loop boundary.
+
     Args:
         tone1_hz: Primary tone frequency in Hz (default 130 = C3)
         tone2_hz: Secondary tone frequency in Hz (default 130 = C3)
         tone_mix: Mix ratio for tone1 vs tone2 (0.0–1.0, default 0.7 = 70% tone1)
         pulse_hz: How fast the volume pulses (Hz, default 0.3 = fades in/out ~every 3s)
         volume: Overall volume (0.0–1.0, default 0.2 = 20%)
-        duration: Length of the WAV clip in seconds (loops in playback)
+        duration: Approximate length of the WAV clip in seconds (snapped
+            to the nearest whole pulse cycle for seamless looping)
         sample_rate: Audio sample rate
     """
     import math
+
+    # Snap duration to a whole number of pulse cycles so the loop is
+    # seamless.  E.g. pulse_hz=0.3 → period=3.333s, duration=2.5 snaps
+    # to 3.333s (one cycle).
+    if pulse_hz > 0:
+        pulse_period = 1.0 / pulse_hz
+        n_cycles = max(1, round(duration / pulse_period))
+        duration = n_cycles * pulse_period
 
     num_samples = int(sample_rate * duration)
     samples = []
@@ -234,8 +248,10 @@ def generate_thinking_sound(
     for i in range(num_samples):
         t = i / sample_rate
 
-        # Soft pulse envelope: fades in and out
-        pulse = 0.5 * (1.0 + math.cos(2 * math.pi * pulse_hz * t))
+        # Pulse envelope: ``(1 - cos)`` shape so amplitude is zero at
+        # t=0 and t=duration (the loop boundary).  Each pulse fades in
+        # smoothly, peaks at the midpoint, and fades back to silence.
+        pulse = 0.5 * (1.0 - math.cos(2 * math.pi * pulse_hz * t))
 
         # Two sine tones for a warm timbre
         t1 = math.sin(2 * math.pi * tone1_hz * t)

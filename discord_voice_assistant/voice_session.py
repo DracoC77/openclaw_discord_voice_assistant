@@ -420,6 +420,16 @@ class VoiceSession:
             self._voice_client = None
 
         if self._openclaw:
+            # Compact each user's conversation history so OpenClaw
+            # summarizes and persists key information from the session.
+            auth_store = self.bot.auth_store
+            for uid, sid in self._user_sessions.items():
+                try:
+                    agent_id = auth_store.get_agent_id(uid)
+                    await self._openclaw.compact_session(sid, agent_id=agent_id)
+                    log.debug("Compacted session %s for user %d", sid, uid)
+                except Exception:
+                    log.debug("Failed to compact session for user %d", uid, exc_info=True)
             if self._session_id:
                 await self._openclaw.end_session(self._session_id)
             await self._openclaw.close()
@@ -562,11 +572,17 @@ class VoiceSession:
         self.bot.voice_manager.notify_activity(self.guild.id)
 
         async with self._processing_lock:
+            # Start thinking sound immediately so the user gets audio
+            # feedback while STT processes (~1.2-1.5s).  We stop it if
+            # STT returns no speech.
+            await self._start_thinking_sound()
+
             stt_start = time.monotonic()
             text = await self._stt.transcribe(audio_data, sample_rate)
             stt_elapsed = time.monotonic() - stt_start
 
             if not text or len(text.strip()) < 2:
+                await self._stop_thinking_sound()
                 return
 
             log.debug("STT transcribed in %.3fs: %r", stt_elapsed, text)
@@ -595,8 +611,6 @@ class VoiceSession:
             # echo/ambient noise while still allowing loud barge-in speech.
             if self._sink:
                 self._sink.set_playback_active(True)
-
-            await self._start_thinking_sound()
 
             llm_start = time.monotonic()
             sentence_buf = ""
