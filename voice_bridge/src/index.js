@@ -110,6 +110,7 @@ class GuildVoiceConnection {
     // Current AudioResource reference (for volume fade-out)
     this._currentResource = null;
     this._fadeTimer = null;
+    this._errorRecoveryTimer = null;
   }
 
   /**
@@ -168,6 +169,11 @@ class GuildVoiceConnection {
     // Set up connection event handlers
     this.connection.on(VoiceConnectionStatus.Ready, () => {
       log('INFO', `Voice connection ready: guild=${this.guildId}`);
+      // Cancel any error recovery timer — the connection recovered
+      if (this._errorRecoveryTimer) {
+        clearTimeout(this._errorRecoveryTimer);
+        this._errorRecoveryTimer = null;
+      }
       this.send({
         op: 'ready',
         guild_id: this.guildId,
@@ -200,6 +206,24 @@ class GuildVoiceConnection {
     this.connection.on('error', (err) => {
       log('ERROR', `Voice connection error: guild=${this.guildId}`, err.message);
       this.send({ op: 'error', guild_id: this.guildId, message: err.message });
+
+      // If the Disconnected handler doesn't fire (e.g. 521 errors that
+      // leave the connection in a stuck state), fall back to destroying
+      // the connection after a timeout.  If new voice credentials arrive
+      // from Python (via voice_server_update forwarding) the adapter will
+      // handle reconnection before this fires.
+      if (this._errorRecoveryTimer) clearTimeout(this._errorRecoveryTimer);
+      this._errorRecoveryTimer = setTimeout(() => {
+        this._errorRecoveryTimer = null;
+        if (
+          this.connection &&
+          this.connection.state.status !== VoiceConnectionStatus.Ready
+        ) {
+          log('WARNING', `Voice connection failed to recover after error, destroying: guild=${this.guildId}`);
+          this.destroy();
+          this.send({ op: 'disconnected', guild_id: this.guildId });
+        }
+      }, 10_000);
     });
 
     this.player.on('error', (err) => {
@@ -449,6 +473,10 @@ class GuildVoiceConnection {
     if (this._fadeTimer) {
       clearInterval(this._fadeTimer);
       this._fadeTimer = null;
+    }
+    if (this._errorRecoveryTimer) {
+      clearTimeout(this._errorRecoveryTimer);
+      this._errorRecoveryTimer = null;
     }
 
     if (this.player) {

@@ -9,7 +9,7 @@ import os
 import re
 import tempfile
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable, Awaitable
 
 import discord
 
@@ -108,18 +108,26 @@ class _BridgeVoiceProtocol(discord.VoiceProtocol):
         self._connected = False
         self._voice_server_event = asyncio.Event()
         self._voice_state_event = asyncio.Event()
+        # Optional callback invoked on subsequent voice updates so the
+        # session can forward new credentials to the bridge (e.g. during
+        # Discord voice server migrations).
+        self.on_voice_update: Callable[[str, dict], Awaitable[None]] | None = None
 
     async def on_voice_server_update(self, data: dict) -> None:
         self.voice_data["voice_server"] = data
         log.debug("Captured voice_server_update: endpoint=%s", data.get("endpoint"))
         self._connected = True
         self._voice_server_event.set()
+        if self.on_voice_update:
+            await self.on_voice_update("voice_server", data)
 
     async def on_voice_state_update(self, data: dict) -> None:
         self.voice_data["voice_state"] = data
         self.voice_data["session_id"] = data.get("session_id", "")
         log.debug("Captured voice_state_update: session=%s", data.get("session_id"))
         self._voice_state_event.set()
+        if self.on_voice_update:
+            await self.on_voice_update("voice_state", data)
 
     async def connect(self, *, timeout: float, reconnect: bool, **kwargs) -> None:
         # Send Gateway OP 4 to tell Discord we want to join this voice channel.
@@ -308,6 +316,27 @@ class VoiceSession:
 
         self.is_active = True
         self._start_time = time.monotonic()
+
+        # Forward subsequent voice credential updates (e.g. during Discord
+        # voice server migrations) to the bridge in real-time so it can
+        # reconnect transparently.
+        async def _forward_voice_update(update_type: str, data: dict) -> None:
+            if not self.is_active:
+                return
+            try:
+                if update_type == "voice_server":
+                    await self.bridge.send_voice_server_update(data)
+                    log.info(
+                        "Forwarded voice_server_update to bridge (endpoint=%s)",
+                        data.get("endpoint"),
+                    )
+                elif update_type == "voice_state":
+                    await self.bridge.send_voice_state_update(data)
+                    log.info("Forwarded voice_state_update to bridge")
+            except Exception:
+                log.warning("Failed to forward voice update to bridge", exc_info=True)
+
+        self._voice_client.on_voice_update = _forward_voice_update
 
         # Register audio callback immediately — pipeline is already warm
         self._sink = StreamingSink(self._on_audio_chunk, asyncio.get_running_loop())
