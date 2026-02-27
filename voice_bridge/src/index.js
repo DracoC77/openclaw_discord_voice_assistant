@@ -32,6 +32,25 @@ const PORT = parseInt(process.env.BRIDGE_PORT || '9876', 10);
 const HEALTH_PORT = parseInt(process.env.HEALTH_PORT || '9877', 10);
 const LOG_LEVEL = process.env.LOG_LEVEL || 'INFO';
 
+// Number of opus frames (~20ms each) to accumulate before checking RMS
+// for early barge-in detection.  3 frames = ~60ms of audio.
+const BARGE_IN_FRAME_COUNT = 3;
+// RMS threshold for early barge-in detection during playback.
+// Must match PLAYBACK_SPEECH_THRESHOLD on the Python side.
+const BARGE_IN_RMS_THRESHOLD = 1200;
+
+// Silence duration before the bridge considers a user's speech finished.
+// Shorter = more responsive but risks splitting mid-sentence pauses.
+const BRIDGE_SILENCE_MS = parseInt(process.env.BRIDGE_SILENCE_MS || '600', 10);
+// Even shorter timeout when the bot is playing audio, since barge-in
+// speech is typically short commands ("stop", "hold on").
+const BRIDGE_SILENCE_PLAYBACK_MS = parseInt(process.env.BRIDGE_SILENCE_PLAYBACK_MS || '300', 10);
+
+// Fade-out duration in milliseconds when stopping playback for barge-in.
+const FADE_DURATION_MS = 100;
+const FADE_STEPS = 5;
+const FADE_INTERVAL_MS = FADE_DURATION_MS / FADE_STEPS;
+
 // Simple logger
 const LOG_LEVELS = { DEBUG: 0, INFO: 1, WARNING: 2, ERROR: 3 };
 const currentLevel = LOG_LEVELS[LOG_LEVEL.toUpperCase()] ?? LOG_LEVELS.INFO;
@@ -41,6 +60,24 @@ function log(level, msg, ...args) {
     const ts = new Date().toISOString();
     console.log(`${ts} [${level}] voice-bridge: ${msg}`, ...args);
   }
+}
+
+/**
+ * Compute RMS (root mean square) of 16-bit PCM audio in a Buffer.
+ * Used for early barge-in detection during playback.
+ */
+function computeRMS(buffer) {
+  const samples = new Int16Array(
+    buffer.buffer,
+    buffer.byteOffset,
+    Math.floor(buffer.length / 2),
+  );
+  if (samples.length === 0) return 0;
+  let sumSquares = 0;
+  for (let i = 0; i < samples.length; i++) {
+    sumSquares += samples[i] * samples[i];
+  }
+  return Math.sqrt(sumSquares / samples.length);
 }
 
 /**
@@ -69,6 +106,10 @@ class GuildVoiceConnection {
     // Looping playback state (used for thinking sound)
     this._loopAudio = null;   // base64 audio to loop, or null
     this._loopFormat = null;  // format of the looped audio
+
+    // Current AudioResource reference (for volume fade-out)
+    this._currentResource = null;
+    this._fadeTimer = null;
   }
 
   /**
@@ -227,12 +268,15 @@ class GuildVoiceConnection {
     this.receiver.speaking.on('start', (userId) => {
       if (this.listeningStreams.has(userId)) return;
 
-      log('DEBUG', `User started speaking: ${userId}`);
+      // Use shorter silence timeout during playback for faster barge-in
+      const isPlaying = this.player && this.player.state.status === AudioPlayerStatus.Playing;
+      const silenceDuration = isPlaying ? BRIDGE_SILENCE_PLAYBACK_MS : BRIDGE_SILENCE_MS;
+      log('DEBUG', `User started speaking: ${userId} (silence timeout: ${silenceDuration}ms)`);
 
       const opusStream = this.receiver.subscribe(userId, {
         end: {
           behavior: EndBehaviorType.AfterSilence,
-          duration: 1000,
+          duration: silenceDuration,
         },
       });
 
@@ -243,11 +287,36 @@ class GuildVoiceConnection {
       // Decode opus to PCM (48kHz, stereo, 16-bit)
       const encoder = new OpusEncoder(48000, 2);
       const pcmChunks = [];
+      let bargeInSent = false;
 
       opusStream.on('data', (chunk) => {
         try {
           const pcm = encoder.decode(chunk);
           pcmChunks.push(pcm);
+
+          // Early barge-in detection: after a few frames (~60ms), if the
+          // audio player is currently playing, compute RMS and notify Python
+          // immediately so it can interrupt without waiting for the full
+          // utterance + 1s silence timeout.
+          if (
+            !bargeInSent &&
+            pcmChunks.length === BARGE_IN_FRAME_COUNT &&
+            this.player &&
+            this.player.state.status === AudioPlayerStatus.Playing
+          ) {
+            const combined = Buffer.concat(pcmChunks);
+            const rms = computeRMS(combined);
+            if (rms > BARGE_IN_RMS_THRESHOLD) {
+              bargeInSent = true;
+              log('DEBUG', `Early barge-in for user ${userId}: rms=${Math.round(rms)}`);
+              this.send({
+                op: 'speaking_start',
+                user_id: userId,
+                guild_id: this.guildId,
+                rms: Math.round(rms),
+              });
+            }
+          }
         } catch (err) {
           log('DEBUG', `Opus decode error for user ${userId}: ${err.message}`);
         }
@@ -288,6 +357,12 @@ class GuildVoiceConnection {
       return;
     }
 
+    // Cancel any ongoing fade from a previous stop
+    if (this._fadeTimer) {
+      clearInterval(this._fadeTimer);
+      this._fadeTimer = null;
+    }
+
     // Store loop state (only set on the initial call, not on re-plays from Idle handler)
     if (loop) {
       this._loopAudio = audioBase64;
@@ -308,27 +383,54 @@ class GuildVoiceConnection {
     if (format === 'pcm') {
       resource = createAudioResource(stream, {
         inputType: StreamType.Raw,
-        inlineVolume: false,
+        inlineVolume: true,
       });
     } else {
       // WAV, MP3, etc. -- let FFmpeg handle it
       resource = createAudioResource(stream, {
         inputType: StreamType.Arbitrary,
+        inlineVolume: true,
       });
     }
 
+    this._currentResource = resource;
     this.player.play(resource);
   }
 
   /**
    * Stop current playback.
+   * @param {boolean} fade - If true, ramp volume to 0 over ~100ms before stopping.
    */
-  stop() {
+  stop(fade = false) {
     // Clear loop state first so the Idle handler doesn't restart playback
     this._loopAudio = null;
     this._loopFormat = null;
-    if (this.player) {
-      this.player.stop();
+
+    // Cancel any in-progress fade
+    if (this._fadeTimer) {
+      clearInterval(this._fadeTimer);
+      this._fadeTimer = null;
+    }
+
+    if (fade && this._currentResource && this._currentResource.volume) {
+      // Quick fade-out: ramp volume to 0 over ~100ms, then stop
+      let step = 0;
+      this._fadeTimer = setInterval(() => {
+        step++;
+        const vol = 1.0 - (step / FADE_STEPS);
+        try {
+          this._currentResource.volume.setVolume(Math.max(0, vol));
+        } catch (_) {
+          // Resource may already be destroyed
+        }
+        if (step >= FADE_STEPS) {
+          clearInterval(this._fadeTimer);
+          this._fadeTimer = null;
+          if (this.player) this.player.stop();
+        }
+      }, FADE_INTERVAL_MS);
+    } else {
+      if (this.player) this.player.stop();
     }
   }
 
@@ -343,6 +445,11 @@ class GuildVoiceConnection {
     this._pendingUpdates = [];
     this._loopAudio = null;
     this._loopFormat = null;
+    this._currentResource = null;
+    if (this._fadeTimer) {
+      clearInterval(this._fadeTimer);
+      this._fadeTimer = null;
+    }
 
     if (this.player) {
       this.player.stop();
@@ -511,9 +618,9 @@ class VoiceBridge {
   }
 
   _handleStop(msg) {
-    const { guild_id } = msg;
+    const { guild_id, fade } = msg;
     const conn = this.guilds.get(guild_id);
-    if (conn) conn.stop();
+    if (conn) conn.stop(!!fade);
   }
 
   _handleDisconnect(msg) {
