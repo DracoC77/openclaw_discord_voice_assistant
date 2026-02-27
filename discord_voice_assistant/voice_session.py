@@ -312,6 +312,7 @@ class VoiceSession:
         # Register audio callback immediately — pipeline is already warm
         self._sink = StreamingSink(self._on_audio_chunk, asyncio.get_running_loop())
         self.bridge.register_audio_callback(guild_id, self._on_bridge_audio)
+        self.bridge.register_speaking_callback(guild_id, self._on_speaking_start)
         self.bridge.register_reconnect_callback(guild_id, self._on_bridge_reconnect)
 
         log.info(
@@ -351,6 +352,28 @@ class VoiceSession:
                     log.debug("Error stopping playback for barge-in", exc_info=True)
 
         self._sink.process_segment(user_id, pcm)
+
+    async def _on_speaking_start(self, user_id: int, rms: float, guild_id: str) -> None:
+        """Early barge-in: bridge detected loud speech within ~60ms of user starting to talk.
+
+        This fires much faster than _on_bridge_audio (which waits for the
+        complete utterance + 1s silence).  The bridge already checked that
+        RMS exceeds PLAYBACK_SPEECH_THRESHOLD and that the audio player was
+        active, so we can trigger the interruption immediately.
+        """
+        if not self.is_active or not self._sink:
+            return
+
+        if self._sink.playback_active and not self._interrupted:
+            log.info(
+                "Early barge-in from user %d (rms=%.0f via speaking_start), interrupting",
+                user_id, rms,
+            )
+            self._interrupted = True
+            try:
+                await self.bridge.stop_playing(self._guild_id_str)
+            except Exception:
+                log.debug("Error stopping playback for early barge-in", exc_info=True)
 
     async def _on_bridge_reconnect(self) -> None:
         """Re-establish the voice connection after a bridge WebSocket reconnect.
@@ -394,6 +417,7 @@ class VoiceSession:
         guild_id = self._guild_id_str
 
         self.bridge.unregister_audio_callback(guild_id)
+        self.bridge.unregister_speaking_callback(guild_id)
         self.bridge.unregister_reconnect_callback(guild_id)
 
         if self._sink and self._sink._pipeline_tasks:
@@ -550,8 +574,6 @@ class VoiceSession:
         if not self.is_active:
             return
 
-        self._interrupted = False
-
         log.debug(
             "Pipeline START for user %d: %d bytes (%.2fs audio at %dHz)",
             user_id, len(audio_data), audio_duration, sample_rate,
@@ -572,6 +594,12 @@ class VoiceSession:
         self.bot.voice_manager.notify_activity(self.guild.id)
 
         async with self._processing_lock:
+            # Reset interrupted flag inside the lock so it doesn't race
+            # with the previous pipeline's interruption checks.  Setting
+            # it before the lock would clear _interrupted while the old
+            # pipeline's play_worker is still checking it.
+            self._interrupted = False
+
             # Start thinking sound immediately so the user gets audio
             # feedback while STT processes (~1.2-1.5s).  We stop it if
             # STT returns no speech.
@@ -643,7 +671,7 @@ class VoiceSession:
                     if item is _SENTINEL:
                         await audio_queue.put(_SENTINEL)
                         break
-                    if not self.is_active:
+                    if not self.is_active or self._interrupted:
                         continue
                     audio = await self._synthesize(item)
                     if audio:

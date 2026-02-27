@@ -32,6 +32,13 @@ const PORT = parseInt(process.env.BRIDGE_PORT || '9876', 10);
 const HEALTH_PORT = parseInt(process.env.HEALTH_PORT || '9877', 10);
 const LOG_LEVEL = process.env.LOG_LEVEL || 'INFO';
 
+// Number of opus frames (~20ms each) to accumulate before checking RMS
+// for early barge-in detection.  3 frames = ~60ms of audio.
+const BARGE_IN_FRAME_COUNT = 3;
+// RMS threshold for early barge-in detection during playback.
+// Must match PLAYBACK_SPEECH_THRESHOLD on the Python side.
+const BARGE_IN_RMS_THRESHOLD = 1200;
+
 // Simple logger
 const LOG_LEVELS = { DEBUG: 0, INFO: 1, WARNING: 2, ERROR: 3 };
 const currentLevel = LOG_LEVELS[LOG_LEVEL.toUpperCase()] ?? LOG_LEVELS.INFO;
@@ -41,6 +48,24 @@ function log(level, msg, ...args) {
     const ts = new Date().toISOString();
     console.log(`${ts} [${level}] voice-bridge: ${msg}`, ...args);
   }
+}
+
+/**
+ * Compute RMS (root mean square) of 16-bit PCM audio in a Buffer.
+ * Used for early barge-in detection during playback.
+ */
+function computeRMS(buffer) {
+  const samples = new Int16Array(
+    buffer.buffer,
+    buffer.byteOffset,
+    Math.floor(buffer.length / 2),
+  );
+  if (samples.length === 0) return 0;
+  let sumSquares = 0;
+  for (let i = 0; i < samples.length; i++) {
+    sumSquares += samples[i] * samples[i];
+  }
+  return Math.sqrt(sumSquares / samples.length);
 }
 
 /**
@@ -243,11 +268,36 @@ class GuildVoiceConnection {
       // Decode opus to PCM (48kHz, stereo, 16-bit)
       const encoder = new OpusEncoder(48000, 2);
       const pcmChunks = [];
+      let bargeInSent = false;
 
       opusStream.on('data', (chunk) => {
         try {
           const pcm = encoder.decode(chunk);
           pcmChunks.push(pcm);
+
+          // Early barge-in detection: after a few frames (~60ms), if the
+          // audio player is currently playing, compute RMS and notify Python
+          // immediately so it can interrupt without waiting for the full
+          // utterance + 1s silence timeout.
+          if (
+            !bargeInSent &&
+            pcmChunks.length === BARGE_IN_FRAME_COUNT &&
+            this.player &&
+            this.player.state.status === AudioPlayerStatus.Playing
+          ) {
+            const combined = Buffer.concat(pcmChunks);
+            const rms = computeRMS(combined);
+            if (rms > BARGE_IN_RMS_THRESHOLD) {
+              bargeInSent = true;
+              log('DEBUG', `Early barge-in for user ${userId}: rms=${Math.round(rms)}`);
+              this.send({
+                op: 'speaking_start',
+                user_id: userId,
+                guild_id: this.guildId,
+                rms: Math.round(rms),
+              });
+            }
+          }
         } catch (err) {
           log('DEBUG', `Opus decode error for user ${userId}: ${err.message}`);
         }

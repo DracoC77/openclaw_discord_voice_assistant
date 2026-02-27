@@ -57,6 +57,8 @@ class VoiceBridgeClient:
         self._disconnect_events: dict[str, asyncio.Event] = {}
         # guild_id -> async callback invoked after WebSocket reconnection
         self._reconnect_callbacks: dict[str, Callable[[], Awaitable[None]]] = {}
+        # guild_id -> callback for early barge-in (speaking_start from bridge)
+        self._speaking_callbacks: dict[str, Callable[[int, float, str], Awaitable[None]]] = {}
 
     async def start(self) -> None:
         """Connect to the bridge and start the message loop."""
@@ -177,6 +179,16 @@ class VoiceBridgeClient:
                 except Exception:
                     log.exception("Error in audio callback for user %s", user_id)
 
+        elif op == "speaking_start":
+            user_id = msg.get("user_id")
+            rms = msg.get("rms", 0)
+            cb = self._speaking_callbacks.get(guild_id)
+            if cb and user_id:
+                try:
+                    await cb(int(user_id), float(rms), guild_id)
+                except Exception:
+                    log.exception("Error in speaking_start callback for user %s", user_id)
+
         elif op == "play_done":
             evt = self._play_done_events.get(guild_id)
             if evt:
@@ -207,6 +219,16 @@ class VoiceBridgeClient:
     def unregister_audio_callback(self, guild_id: str) -> None:
         """Remove the audio callback for a guild."""
         self._audio_callbacks.pop(guild_id, None)
+
+    def register_speaking_callback(
+        self, guild_id: str, callback: Callable[[int, float, str], Awaitable[None]],
+    ) -> None:
+        """Register a callback for early barge-in (speaking_start events)."""
+        self._speaking_callbacks[guild_id] = callback
+
+    def unregister_speaking_callback(self, guild_id: str) -> None:
+        """Remove the speaking callback for a guild."""
+        self._speaking_callbacks.pop(guild_id, None)
 
     def register_reconnect_callback(
         self, guild_id: str, callback: Callable[[], Awaitable[None]],
@@ -295,6 +317,7 @@ class VoiceBridgeClient:
     async def disconnect(self, guild_id: str) -> None:
         """Disconnect from voice in a guild and clean up all state."""
         self._audio_callbacks.pop(guild_id, None)
+        self._speaking_callbacks.pop(guild_id, None)
         self._ready_events.pop(guild_id, None)
         self._play_done_events.pop(guild_id, None)
         self._disconnect_events.pop(guild_id, None)
