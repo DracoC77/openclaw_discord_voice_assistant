@@ -202,6 +202,12 @@ class VoiceBridgeClient:
 
         elif op == "error":
             log.error("Bridge error for guild %s: %s", guild_id, msg.get("message"))
+            # Unblock any pending play() call so the pipeline doesn't hang
+            # waiting for a play_done that will never arrive from a broken
+            # voice connection.
+            evt = self._play_done_events.get(guild_id)
+            if evt:
+                evt.set()
 
     async def send(self, msg: dict) -> None:
         """Send a JSON message to the bridge.
