@@ -310,9 +310,16 @@ class VoiceBridgeClient:
         finally:
             self._play_done_events.pop(guild_id, None)
 
-    async def stop_playing(self, guild_id: str) -> None:
-        """Stop current playback in a guild."""
-        await self.send({"op": "stop", "guild_id": guild_id})
+    async def stop_playing(self, guild_id: str, *, fade: bool = False) -> None:
+        """Stop current playback in a guild.
+
+        When *fade* is True the bridge ramps volume to zero over ~100 ms
+        before stopping, giving a smoother barge-in experience.
+        """
+        msg: dict = {"op": "stop", "guild_id": guild_id}
+        if fade:
+            msg["fade"] = True
+        await self.send(msg)
 
     async def disconnect(self, guild_id: str) -> None:
         """Disconnect from voice in a guild and clean up all state."""

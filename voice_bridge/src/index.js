@@ -39,6 +39,18 @@ const BARGE_IN_FRAME_COUNT = 3;
 // Must match PLAYBACK_SPEECH_THRESHOLD on the Python side.
 const BARGE_IN_RMS_THRESHOLD = 1200;
 
+// Silence duration before the bridge considers a user's speech finished.
+// Shorter = more responsive but risks splitting mid-sentence pauses.
+const BRIDGE_SILENCE_MS = parseInt(process.env.BRIDGE_SILENCE_MS || '600', 10);
+// Even shorter timeout when the bot is playing audio, since barge-in
+// speech is typically short commands ("stop", "hold on").
+const BRIDGE_SILENCE_PLAYBACK_MS = parseInt(process.env.BRIDGE_SILENCE_PLAYBACK_MS || '300', 10);
+
+// Fade-out duration in milliseconds when stopping playback for barge-in.
+const FADE_DURATION_MS = 100;
+const FADE_STEPS = 5;
+const FADE_INTERVAL_MS = FADE_DURATION_MS / FADE_STEPS;
+
 // Simple logger
 const LOG_LEVELS = { DEBUG: 0, INFO: 1, WARNING: 2, ERROR: 3 };
 const currentLevel = LOG_LEVELS[LOG_LEVEL.toUpperCase()] ?? LOG_LEVELS.INFO;
@@ -94,6 +106,10 @@ class GuildVoiceConnection {
     // Looping playback state (used for thinking sound)
     this._loopAudio = null;   // base64 audio to loop, or null
     this._loopFormat = null;  // format of the looped audio
+
+    // Current AudioResource reference (for volume fade-out)
+    this._currentResource = null;
+    this._fadeTimer = null;
   }
 
   /**
@@ -252,12 +268,15 @@ class GuildVoiceConnection {
     this.receiver.speaking.on('start', (userId) => {
       if (this.listeningStreams.has(userId)) return;
 
-      log('DEBUG', `User started speaking: ${userId}`);
+      // Use shorter silence timeout during playback for faster barge-in
+      const isPlaying = this.player && this.player.state.status === AudioPlayerStatus.Playing;
+      const silenceDuration = isPlaying ? BRIDGE_SILENCE_PLAYBACK_MS : BRIDGE_SILENCE_MS;
+      log('DEBUG', `User started speaking: ${userId} (silence timeout: ${silenceDuration}ms)`);
 
       const opusStream = this.receiver.subscribe(userId, {
         end: {
           behavior: EndBehaviorType.AfterSilence,
-          duration: 1000,
+          duration: silenceDuration,
         },
       });
 
@@ -338,6 +357,12 @@ class GuildVoiceConnection {
       return;
     }
 
+    // Cancel any ongoing fade from a previous stop
+    if (this._fadeTimer) {
+      clearInterval(this._fadeTimer);
+      this._fadeTimer = null;
+    }
+
     // Store loop state (only set on the initial call, not on re-plays from Idle handler)
     if (loop) {
       this._loopAudio = audioBase64;
@@ -358,27 +383,54 @@ class GuildVoiceConnection {
     if (format === 'pcm') {
       resource = createAudioResource(stream, {
         inputType: StreamType.Raw,
-        inlineVolume: false,
+        inlineVolume: true,
       });
     } else {
       // WAV, MP3, etc. -- let FFmpeg handle it
       resource = createAudioResource(stream, {
         inputType: StreamType.Arbitrary,
+        inlineVolume: true,
       });
     }
 
+    this._currentResource = resource;
     this.player.play(resource);
   }
 
   /**
    * Stop current playback.
+   * @param {boolean} fade - If true, ramp volume to 0 over ~100ms before stopping.
    */
-  stop() {
+  stop(fade = false) {
     // Clear loop state first so the Idle handler doesn't restart playback
     this._loopAudio = null;
     this._loopFormat = null;
-    if (this.player) {
-      this.player.stop();
+
+    // Cancel any in-progress fade
+    if (this._fadeTimer) {
+      clearInterval(this._fadeTimer);
+      this._fadeTimer = null;
+    }
+
+    if (fade && this._currentResource && this._currentResource.volume) {
+      // Quick fade-out: ramp volume to 0 over ~100ms, then stop
+      let step = 0;
+      this._fadeTimer = setInterval(() => {
+        step++;
+        const vol = 1.0 - (step / FADE_STEPS);
+        try {
+          this._currentResource.volume.setVolume(Math.max(0, vol));
+        } catch (_) {
+          // Resource may already be destroyed
+        }
+        if (step >= FADE_STEPS) {
+          clearInterval(this._fadeTimer);
+          this._fadeTimer = null;
+          if (this.player) this.player.stop();
+        }
+      }, FADE_INTERVAL_MS);
+    } else {
+      if (this.player) this.player.stop();
     }
   }
 
@@ -393,6 +445,11 @@ class GuildVoiceConnection {
     this._pendingUpdates = [];
     this._loopAudio = null;
     this._loopFormat = null;
+    this._currentResource = null;
+    if (this._fadeTimer) {
+      clearInterval(this._fadeTimer);
+      this._fadeTimer = null;
+    }
 
     if (this.player) {
       this.player.stop();
@@ -561,9 +618,9 @@ class VoiceBridge {
   }
 
   _handleStop(msg) {
-    const { guild_id } = msg;
+    const { guild_id, fade } = msg;
     const conn = this.guilds.get(guild_id);
-    if (conn) conn.stop();
+    if (conn) conn.stop(!!fade);
   }
 
   _handleDisconnect(msg) {

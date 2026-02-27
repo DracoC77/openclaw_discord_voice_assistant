@@ -347,7 +347,7 @@ class VoiceSession:
                 )
                 self._interrupted = True
                 try:
-                    await self.bridge.stop_playing(self._guild_id_str)
+                    await self.bridge.stop_playing(self._guild_id_str, fade=True)
                 except Exception:
                     log.debug("Error stopping playback for barge-in", exc_info=True)
 
@@ -371,7 +371,7 @@ class VoiceSession:
             )
             self._interrupted = True
             try:
-                await self.bridge.stop_playing(self._guild_id_str)
+                await self.bridge.stop_playing(self._guild_id_str, fade=True)
             except Exception:
                 log.debug("Error stopping playback for early barge-in", exc_info=True)
 
