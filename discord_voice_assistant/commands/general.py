@@ -36,6 +36,10 @@ class GeneralCommands(commands.Cog):
         admins = store.admin_count
         name = self.bot.config.discord.bot_name
 
+        effective_provider = store.get_effective_tts_provider(
+            self.bot.config.tts.provider
+        )
+
         embed = discord.Embed(
             title=f"{name} Status",
             color=discord.Color.green() if session_count > 0 else discord.Color.greyple(),
@@ -60,7 +64,7 @@ class GeneralCommands(commands.Cog):
             inline=True,
         )
         embed.add_field(
-            name="TTS Provider", value=self.bot.config.tts.provider, inline=True
+            name="TTS Provider", value=effective_provider, inline=True
         )
         embed.add_field(
             name="STT Model", value=self.bot.config.stt.model_size, inline=True
@@ -86,70 +90,6 @@ class GeneralCommands(commands.Cog):
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @app_commands.command(
-        name="authorize",
-        description="Add a user to the authorized list (admin only)",
-    )
-    @app_commands.describe(user="User to authorize")
-    async def authorize(
-        self,
-        interaction: discord.Interaction,
-        user: discord.User,
-    ) -> None:
-        store = self.bot.auth_store
-        is_owner = await self.bot.is_owner(interaction.user)
-        if not is_owner and not store.is_admin(interaction.user.id):
-            await interaction.response.send_message(
-                "Only admins can use this command.", ephemeral=True
-            )
-            return
-
-        if store.add_user(user.id, added_by=interaction.user.id):
-            await interaction.response.send_message(
-                f"Authorized {user.mention} for voice interactions (persisted).",
-                ephemeral=True,
-            )
-        else:
-            await interaction.response.send_message(
-                f"{user.mention} is already authorized.", ephemeral=True
-            )
-
-    @app_commands.command(
-        name="deauthorize",
-        description="Remove a user from the authorized list (admin only)",
-    )
-    @app_commands.describe(user="User to deauthorize")
-    async def deauthorize(
-        self,
-        interaction: discord.Interaction,
-        user: discord.User,
-    ) -> None:
-        store = self.bot.auth_store
-        is_owner = await self.bot.is_owner(interaction.user)
-        if not is_owner and not store.is_admin(interaction.user.id):
-            await interaction.response.send_message(
-                "Only admins can use this command.", ephemeral=True
-            )
-            return
-
-        # Lockout protection
-        if store.is_last_admin(user.id):
-            await interaction.response.send_message(
-                f"Cannot deauthorize {user.mention} — they are the last admin.",
-                ephemeral=True,
-            )
-            return
-
-        if store.remove_user(user.id):
-            await interaction.response.send_message(
-                f"Deauthorized {user.mention} (persisted).",
-                ephemeral=True,
-            )
-        else:
-            await interaction.response.send_message(
-                f"{user.mention} is not in the authorized list.", ephemeral=True
-            )
-
     @app_commands.command(name="help", description="Show available voice assistant commands")
     async def help_cmd(self, interaction: discord.Interaction) -> None:
         name = self.bot.config.discord.bot_name
@@ -163,9 +103,7 @@ class GeneralCommands(commands.Cog):
             value=(
                 "`/ping` - Check bot latency\n"
                 "`/status` - Show current bot status\n"
-                "`/help` - Show this help message\n"
-                "`/authorize @user` - Authorize a user (admin only)\n"
-                "`/deauthorize @user` - Deauthorize a user (admin only)"
+                "`/help` - Show this help message"
             ),
             inline=False,
         )
@@ -183,6 +121,15 @@ class GeneralCommands(commands.Cog):
             inline=False,
         )
         embed.add_field(
+            name="Voice Customization",
+            value=(
+                "`/voice-set <voice>` - Set your personal TTS voice\n"
+                "`/voice-voices` - Browse available voices\n"
+                "`/voice-config` - Show your voice configuration"
+            ),
+            inline=False,
+        )
+        embed.add_field(
             name="Admin",
             value=(
                 "`/voice-users` - List authorized users and roles\n"
@@ -191,6 +138,8 @@ class GeneralCommands(commands.Cog):
                 "`/voice-promote @user` - Promote to admin\n"
                 "`/voice-demote @user` - Demote to user\n"
                 "`/voice-agent @user [agent_id]` - Set/clear agent\n"
+                "`/voice-set-user @user [voice]` - Set/clear user voice\n"
+                "`/voice-provider <provider>` - Switch TTS provider\n"
                 "`/voice-channels` - List allowed channels\n"
                 "`/voice-channel-add #ch` - Restrict to a channel\n"
                 "`/voice-channel-remove #ch` - Un-restrict a channel\n"
