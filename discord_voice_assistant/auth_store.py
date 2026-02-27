@@ -4,6 +4,7 @@ Backed by JSON files in the data directory:
   - authorized_users.json: user IDs, roles (admin/user), metadata
   - agent_routing.json: per-user OpenClaw agent ID mappings
   - channel_config.json: per-guild voice channel allowlists
+  - voice_config.json: global TTS provider + per-user voice preferences
 
 Bootstraps from AUTHORIZED_USER_IDS and ADMIN_USER_IDS env vars on first run.
 Uses fcntl file locking for safe concurrent access.
@@ -39,6 +40,7 @@ class AuthStore:
         self._users_path = self._data_dir / "authorized_users.json"
         self._routes_path = self._data_dir / "agent_routing.json"
         self._channels_path = self._data_dir / "channel_config.json"
+        self._voice_config_path = self._data_dir / "voice_config.json"
         self._default_agent_id = default_agent_id
 
         # In-memory caches
@@ -46,6 +48,8 @@ class AuthStore:
         self._routes: dict[str, dict[str, Any]] = {}
         # guild_id (str) -> list of allowed channel_id (str)
         self._channels: dict[str, list[str]] = {}
+        # Voice config: {"global": {...}, "users": {uid: {...}}}
+        self._voice_config: dict[str, Any] = {"global": {}, "users": {}}
 
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._load_or_bootstrap(
@@ -161,6 +165,22 @@ class AuthStore:
         else:
             self._save_channels()
 
+        voice_cfg = self._read_json(self._voice_config_path)
+        if voice_cfg:
+            self._voice_config = {
+                "global": voice_cfg.get("global", {}),
+                "users": voice_cfg.get("users", {}),
+            }
+            user_count = len(self._voice_config["users"])
+            provider = self._voice_config["global"].get("tts_provider")
+            if user_count or provider:
+                log.info(
+                    "Loaded voice config: provider=%s, %d user override(s)",
+                    provider or "(env default)", user_count,
+                )
+        else:
+            self._save_voice_config()
+
     def _save_users(self) -> None:
         self._write_json(self._users_path, {"users": self._users})
 
@@ -170,14 +190,22 @@ class AuthStore:
     def _save_channels(self) -> None:
         self._write_json(self._channels_path, {"guilds": self._channels})
 
+    def _save_voice_config(self) -> None:
+        self._write_json(self._voice_config_path, self._voice_config)
+
     def reload(self) -> None:
         """Reload from disk (useful after external edits)."""
         users_data = self._read_json(self._users_path)
         routes_data = self._read_json(self._routes_path)
         channels_data = self._read_json(self._channels_path)
+        voice_cfg = self._read_json(self._voice_config_path)
         self._users = users_data.get("users", {})
         self._routes = routes_data.get("routes", {})
         self._channels = channels_data.get("guilds", {})
+        self._voice_config = {
+            "global": voice_cfg.get("global", {}),
+            "users": voice_cfg.get("users", {}),
+        }
 
     # ------------------------------------------------------------------
     # User authorization
@@ -231,10 +259,12 @@ class AuthStore:
         if uid_str not in self._users:
             return False
         del self._users[uid_str]
-        # Also remove any agent route
+        # Also remove any agent route and voice config
         self._routes.pop(uid_str, None)
+        self._voice_config["users"].pop(uid_str, None)
         self._save_users()
         self._save_routes()
+        self._save_voice_config()
         log.info("Removed user %s", user_id)
         return True
 
@@ -363,6 +393,83 @@ class AuthStore:
         self._save_channels()
         log.info("Cleared channel allowlist for guild %s", guild_id)
         return True
+
+    # ------------------------------------------------------------------
+    # Voice configuration (global provider + per-user voice)
+    # ------------------------------------------------------------------
+
+    def get_global_tts_provider(self) -> str | None:
+        """Get the globally overridden TTS provider, or None for env default."""
+        return self._voice_config["global"].get("tts_provider")
+
+    def set_global_tts_provider(self, provider: str) -> None:
+        """Set the global TTS provider override ('local' or 'elevenlabs')."""
+        self._voice_config["global"]["tts_provider"] = provider
+        self._save_voice_config()
+        log.info("Global TTS provider set to %s", provider)
+
+    def clear_global_tts_provider(self) -> None:
+        """Clear the global provider override (revert to env default)."""
+        self._voice_config["global"].pop("tts_provider", None)
+        self._save_voice_config()
+        log.info("Global TTS provider override cleared (using env default)")
+
+    def get_user_voice(self, user_id: int) -> dict[str, str]:
+        """Get a user's voice preferences.
+
+        Returns a dict with optional keys:
+          - elevenlabs_voice_id: ElevenLabs voice ID
+          - local_tts_model: Piper model name
+        Empty dict if no overrides set.
+        """
+        return dict(self._voice_config["users"].get(str(user_id), {}))
+
+    def set_user_voice(
+        self,
+        user_id: int,
+        *,
+        elevenlabs_voice_id: str | None = None,
+        local_tts_model: str | None = None,
+    ) -> None:
+        """Set per-user voice preference for one or both providers."""
+        uid_str = str(user_id)
+        if uid_str not in self._voice_config["users"]:
+            self._voice_config["users"][uid_str] = {}
+        entry = self._voice_config["users"][uid_str]
+        if elevenlabs_voice_id is not None:
+            entry["elevenlabs_voice_id"] = elevenlabs_voice_id
+        if local_tts_model is not None:
+            entry["local_tts_model"] = local_tts_model
+        self._save_voice_config()
+        log.info("Set voice config for user %s: %s", user_id, entry)
+
+    def clear_user_voice(self, user_id: int) -> bool:
+        """Clear all voice preferences for a user. Returns False if none existed."""
+        uid_str = str(user_id)
+        if uid_str not in self._voice_config["users"]:
+            return False
+        del self._voice_config["users"][uid_str]
+        self._save_voice_config()
+        log.info("Cleared voice config for user %s", user_id)
+        return True
+
+    def get_effective_tts_provider(self, env_default: str) -> str:
+        """Get the effective TTS provider (global override or env default)."""
+        return self.get_global_tts_provider() or env_default
+
+    def get_effective_voice_id(self, user_id: int, env_default: str) -> str:
+        """Get the effective ElevenLabs voice ID for a user."""
+        prefs = self.get_user_voice(user_id)
+        return prefs.get("elevenlabs_voice_id") or env_default
+
+    def get_effective_local_model(self, user_id: int, env_default: str) -> str:
+        """Get the effective Piper model name for a user."""
+        prefs = self.get_user_voice(user_id)
+        return prefs.get("local_tts_model") or env_default
+
+    def get_all_voice_configs(self) -> dict[str, dict[str, str]]:
+        """Return a copy of all per-user voice configs."""
+        return {k: dict(v) for k, v in self._voice_config["users"].items()}
 
     # ------------------------------------------------------------------
     # Session key helpers
