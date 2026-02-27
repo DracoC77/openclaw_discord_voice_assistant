@@ -648,10 +648,20 @@ class VoiceSession:
             speaker_name = member.display_name if member else f"User#{user_id}"
             log.info("[%s] %s", speaker_name, text)
 
-            # Per-user session ID and agent routing
+            # Per-user session ID, agent routing, and voice config
             auth_store = self.bot.auth_store
             user_session_id = self._get_or_create_user_session(user_id)
             user_agent_id = auth_store.get_agent_id(user_id)
+
+            # Resolve effective TTS settings for this user
+            tts_cfg = self.config.tts
+            user_tts_provider = auth_store.get_effective_tts_provider(tts_cfg.provider)
+            user_voice_id = auth_store.get_effective_voice_id(
+                user_id, tts_cfg.elevenlabs_voice_id
+            )
+            user_local_model = auth_store.get_effective_local_model(
+                user_id, tts_cfg.local_model
+            )
 
             # If the previous response was interrupted by barge-in,
             # prepend context so OpenClaw knows the conversation was cut short.
@@ -702,7 +712,12 @@ class VoiceSession:
                         break
                     if not self.is_active or self._interrupted:
                         continue
-                    audio = await self._synthesize(item)
+                    audio = await self._synthesize(
+                        item,
+                        provider=user_tts_provider,
+                        elevenlabs_voice_id=user_voice_id,
+                        local_model=user_local_model,
+                    )
                     if audio:
                         await audio_queue.put(audio)
 
@@ -832,10 +847,22 @@ class VoiceSession:
                 " (interrupted)" if self._interrupted else "",
             )
 
-    async def _synthesize(self, text: str) -> bytes | None:
+    async def _synthesize(
+        self,
+        text: str,
+        *,
+        provider: str | None = None,
+        elevenlabs_voice_id: str | None = None,
+        local_model: str | None = None,
+    ) -> bytes | None:
         """Run TTS synthesis and return raw audio bytes (no playback)."""
         synth_start = time.monotonic()
-        audio_bytes = await self._tts.synthesize(text)
+        audio_bytes = await self._tts.synthesize(
+            text,
+            provider=provider,
+            elevenlabs_voice_id=elevenlabs_voice_id,
+            local_model=local_model,
+        )
         log.debug(
             "TTS produced %d bytes in %.3fs",
             len(audio_bytes) if audio_bytes else 0,

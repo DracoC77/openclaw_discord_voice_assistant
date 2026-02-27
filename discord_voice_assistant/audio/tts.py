@@ -275,35 +275,63 @@ def generate_thinking_sound(
 
 
 class TextToSpeech:
-    """Synthesizes speech from text using either ElevenLabs or local Piper TTS."""
+    """Synthesizes speech from text using either ElevenLabs or local Piper TTS.
+
+    Supports per-user voice overrides: callers can pass ``provider``,
+    ``elevenlabs_voice_id``, or ``local_model`` to ``synthesize()`` to
+    override the config defaults on a per-request basis.
+    """
 
     def __init__(self, config: TTSConfig) -> None:
         self.config = config
         self._elevenlabs_client = None
-        self._resolved_model: str | None = None
+        # Cache of resolved Piper model paths: model_name -> absolute path
+        self._piper_model_cache: dict[str, str] = {}
         self._strip_silence = config.strip_leading_silence
 
     async def warm_up(self) -> None:
         """Pre-resolve the TTS model so the first synthesis isn't delayed."""
         if self.config.provider == "elevenlabs":
-            try:
-                from elevenlabs import AsyncElevenLabs
-                self._elevenlabs_client = AsyncElevenLabs(
-                    api_key=self.config.elevenlabs_api_key
-                )
-                log.debug("ElevenLabs client pre-initialized")
-            except ImportError:
-                log.warning("elevenlabs package not installed")
+            await self._ensure_elevenlabs_client()
         else:
             loop = asyncio.get_running_loop()
             resolved = await loop.run_in_executor(
                 None, _resolve_piper_model, self.config.local_model
             )
-            self._resolved_model = resolved
+            self._piper_model_cache[self.config.local_model] = resolved
             log.debug("Piper model pre-resolved: %s", resolved)
 
-    async def synthesize(self, text: str) -> bytes | None:
+    async def _ensure_elevenlabs_client(self) -> bool:
+        """Lazily initialize the ElevenLabs client. Returns True on success."""
+        if self._elevenlabs_client is not None:
+            return True
+        try:
+            from elevenlabs import AsyncElevenLabs
+            self._elevenlabs_client = AsyncElevenLabs(
+                api_key=self.config.elevenlabs_api_key
+            )
+            log.debug("ElevenLabs client initialized")
+            return True
+        except ImportError:
+            log.warning("elevenlabs package not installed")
+            return False
+
+    async def synthesize(
+        self,
+        text: str,
+        *,
+        provider: str | None = None,
+        elevenlabs_voice_id: str | None = None,
+        local_model: str | None = None,
+    ) -> bytes | None:
         """Convert text to WAV audio bytes.
+
+        Args:
+            text: Text to synthesize.
+            provider: Override TTS provider ('local' or 'elevenlabs').
+                Falls back to config default if None.
+            elevenlabs_voice_id: Override ElevenLabs voice ID for this request.
+            local_model: Override Piper model name for this request.
 
         Returns:
             WAV audio bytes suitable for FFmpeg playback, or None on failure.
@@ -323,52 +351,52 @@ class TextToSpeech:
             original_len, len(text), text[:300],
         )
 
+        effective_provider = provider or self.config.provider
+
         try:
             t0 = time.monotonic()
-            if self.config.provider == "elevenlabs":
-                result = await self._synthesize_elevenlabs(text)
+            if effective_provider == "elevenlabs":
+                voice_id = elevenlabs_voice_id or self.config.elevenlabs_voice_id
+                result = await self._synthesize_elevenlabs(text, voice_id=voice_id)
             else:
-                result = await self._synthesize_local(text)
+                model = local_model or self.config.local_model
+                result = await self._synthesize_local(text, model=model)
             elapsed = time.monotonic() - t0
             if result and self._strip_silence:
                 result = _strip_leading_silence(result)
             if result:
                 log.debug(
                     "TTS synthesis complete: provider=%s, %d bytes, %.3fs",
-                    self.config.provider, len(result), elapsed,
+                    effective_provider, len(result), elapsed,
                 )
             else:
                 log.warning(
                     "TTS synthesis returned no audio: provider=%s, %.3fs, text=%r",
-                    self.config.provider, elapsed, text[:300],
+                    effective_provider, elapsed, text[:300],
                 )
             return result
         except Exception:
             log.exception("TTS synthesis failed")
             return None
 
-    async def _synthesize_elevenlabs(self, text: str) -> bytes | None:
+    async def _synthesize_elevenlabs(
+        self, text: str, *, voice_id: str | None = None
+    ) -> bytes | None:
         """Synthesize using ElevenLabs API."""
-        if self._elevenlabs_client is None:
-            try:
-                from elevenlabs import AsyncElevenLabs
-                self._elevenlabs_client = AsyncElevenLabs(
-                    api_key=self.config.elevenlabs_api_key
-                )
-                log.debug("ElevenLabs client initialized")
-            except ImportError:
-                log.error(
-                    "elevenlabs package not installed. "
-                    "Install with: pip install elevenlabs"
-                )
-                return None
+        if not await self._ensure_elevenlabs_client():
+            log.error(
+                "elevenlabs package not installed. "
+                "Install with: pip install elevenlabs"
+            )
+            return None
 
+        effective_voice = voice_id or self.config.elevenlabs_voice_id
         log.debug(
             "ElevenLabs request: voice=%s, text_len=%d",
-            self.config.elevenlabs_voice_id, len(text),
+            effective_voice, len(text),
         )
         audio_stream = await self._elevenlabs_client.text_to_speech.convert(
-            voice_id=self.config.elevenlabs_voice_id,
+            voice_id=effective_voice,
             text=text,
             model_id="eleven_turbo_v2_5",
             output_format="pcm_16000",
@@ -383,12 +411,19 @@ class TextToSpeech:
         # Wrap raw PCM in WAV container for FFmpeg
         return self._pcm_to_wav(pcm_data, sample_rate=16000, channels=1)
 
-    async def _synthesize_local(self, text: str) -> bytes | None:
+    async def _synthesize_local(
+        self, text: str, *, model: str | None = None
+    ) -> bytes | None:
         """Synthesize using local Piper TTS."""
+        effective_model = model or self.config.local_model
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, self._synthesize_piper_sync, text)
+        return await loop.run_in_executor(
+            None, self._synthesize_piper_sync, text, effective_model
+        )
 
-    def _synthesize_piper_sync(self, text: str) -> bytes | None:
+    def _synthesize_piper_sync(
+        self, text: str, model_name: str | None = None
+    ) -> bytes | None:
         """Synchronous Piper TTS synthesis via CLI subprocess.
 
         Uses the piper CLI (installed by piper-tts) rather than the Python API,
@@ -396,10 +431,13 @@ class TextToSpeech:
         """
         import subprocess
 
-        # Resolve model name to path on first call (and auto-download if needed)
-        if self._resolved_model is None:
-            self._resolved_model = _resolve_piper_model(self.config.local_model)
-        model_path = self._resolved_model
+        effective_model = model_name or self.config.local_model
+        # Resolve model name to path (cached after first resolution)
+        if effective_model not in self._piper_model_cache:
+            self._piper_model_cache[effective_model] = _resolve_piper_model(
+                effective_model
+            )
+        model_path = self._piper_model_cache[effective_model]
 
         log.debug("Piper TTS: model=%s, text_len=%d", model_path, len(text))
 
