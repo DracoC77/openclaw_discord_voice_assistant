@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import TYPE_CHECKING
 
 import discord
@@ -187,14 +188,27 @@ class VoiceConfigCommands(commands.Cog):
         provider = store.get_effective_tts_provider(self.bot.config.tts.provider)
         display = _voice_display_name(provider, voice)
 
+        warning = ""
         if provider == "elevenlabs":
             store.set_user_voice(interaction.user.id, elevenlabs_voice_id=voice)
         else:
+            # Validate the Piper model exists or is a known model name
+            known_models = {m for _, m in PIPER_VOICES}
+            piper_model_dir = os.getenv("PIPER_MODEL_DIR", "/opt/piper")
+            model_file = os.path.join(piper_model_dir, f"{voice}.onnx")
+            if voice not in known_models and not os.path.isfile(model_file):
+                warning = (
+                    f"\n\n**Warning:** Model `{voice}` is not pre-installed "
+                    "and not in the known voice list. It will be auto-downloaded "
+                    "from HuggingFace on first use — if the name is wrong, TTS "
+                    "will fall back to espeak-ng (robotic voice). "
+                    "Use `/voice-voices` to see known models."
+                )
             store.set_user_voice(interaction.user.id, local_tts_model=voice)
 
         await interaction.response.send_message(
             f"Your voice set to **{display}** (provider: {provider}).\n"
-            "Takes effect on your next speech.",
+            f"Takes effect on your next speech.{warning}",
             ephemeral=True,
         )
 

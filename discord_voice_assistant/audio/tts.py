@@ -432,12 +432,20 @@ class TextToSpeech:
         import subprocess
 
         effective_model = model_name or self.config.local_model
-        # Resolve model name to path (cached after first resolution)
-        if effective_model not in self._piper_model_cache:
-            self._piper_model_cache[effective_model] = _resolve_piper_model(
-                effective_model
-            )
-        model_path = self._piper_model_cache[effective_model]
+        # Resolve model name to path (only cache if the file actually exists)
+        if effective_model in self._piper_model_cache:
+            model_path = self._piper_model_cache[effective_model]
+        else:
+            model_path = _resolve_piper_model(effective_model)
+            if os.path.isfile(model_path):
+                self._piper_model_cache[effective_model] = model_path
+            else:
+                log.warning(
+                    "Piper model '%s' resolved to non-existent path: %s "
+                    "(not caching — will retry next time)",
+                    effective_model,
+                    model_path,
+                )
 
         log.debug("Piper TTS: model=%s, text_len=%d", model_path, len(text))
 
@@ -474,6 +482,11 @@ class TextToSpeech:
         """Ultimate fallback: use espeak via subprocess."""
         import subprocess
 
+        log.warning(
+            "Falling back to espeak-ng (Piper unavailable), "
+            "output will sound robotic — text=%r",
+            text[:200],
+        )
         try:
             result = subprocess.run(
                 ["espeak-ng", "--stdout", "-s", "150", text],
@@ -481,9 +494,19 @@ class TextToSpeech:
                 timeout=30,
             )
             if result.returncode == 0 and result.stdout:
+                log.warning(
+                    "espeak-ng fallback produced %d bytes "
+                    "(check Piper model configuration)",
+                    len(result.stdout),
+                )
                 return result.stdout
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            log.warning("espeak-ng not available as fallback TTS")
+            log.warning(
+                "espeak-ng fallback failed (rc=%d)", result.returncode
+            )
+        except FileNotFoundError:
+            log.warning("espeak-ng not installed — no TTS fallback available")
+        except subprocess.TimeoutExpired:
+            log.warning("espeak-ng fallback timed out after 30s")
         return None
 
     @staticmethod
