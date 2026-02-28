@@ -96,7 +96,7 @@ RUN useradd -m -s /bin/bash appuser
 
 # Create data directories and set ownership
 RUN mkdir -p /app/data /app/models /app/logs \
-    && chown -R appuser:appuser /app
+    && chown -R appuser:appuser /app /opt/piper
 
 # Entrypoint fixes volume permissions then drops to appuser
 COPY docker-entrypoint.sh /usr/local/bin/

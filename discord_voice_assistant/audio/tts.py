@@ -184,20 +184,44 @@ def _resolve_piper_model(model: str) -> str:
         json_url = f"{base_url}/{model}.onnx.json"
 
         log.info("Downloading Piper model '%s' from HuggingFace...", model)
-        _PIPER_MODEL_DIR.mkdir(parents=True, exist_ok=True)
+
+        # Try the configured model dir first; fall back to a writable
+        # location if permissions prevent writing (e.g. /opt/piper owned
+        # by root but app running as appuser).
+        download_dir = _PIPER_MODEL_DIR
+        try:
+            download_dir.mkdir(parents=True, exist_ok=True)
+            # Quick writability check
+            _test = download_dir / ".write_test"
+            _test.touch()
+            _test.unlink()
+        except PermissionError:
+            download_dir = Path.home() / ".local" / "share" / "piper-models"
+            log.warning(
+                "Cannot write to %s, using fallback: %s",
+                _PIPER_MODEL_DIR,
+                download_dir,
+            )
+            download_dir.mkdir(parents=True, exist_ok=True)
+
+        dl_onnx = download_dir / f"{model}.onnx"
+        dl_json = download_dir / f"{model}.onnx.json"
 
         import urllib.request
-        urllib.request.urlretrieve(onnx_url, str(onnx_path))
-        urllib.request.urlretrieve(json_url, str(json_path))
+        urllib.request.urlretrieve(onnx_url, str(dl_onnx))
+        urllib.request.urlretrieve(json_url, str(dl_json))
 
-        log.info("Piper model '%s' downloaded to %s", model, onnx_path)
-        return str(onnx_path)
+        log.info("Piper model '%s' downloaded to %s", model, dl_onnx)
+        return str(dl_onnx)
 
     except Exception:
         log.exception("Failed to download Piper model '%s'", model)
         # Clean up partial downloads
-        onnx_path.unlink(missing_ok=True)
-        json_path.unlink(missing_ok=True)
+        for p in (onnx_path, json_path):
+            try:
+                p.unlink(missing_ok=True)
+            except OSError:
+                pass
         return str(onnx_path)
 
 
