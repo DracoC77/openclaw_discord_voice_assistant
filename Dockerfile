@@ -109,5 +109,8 @@ ENV MODELS_DIR=/app/models
 
 VOLUME ["/app/data", "/app/models", "/app/logs"]
 
+# Proactive voice webhook server port
+EXPOSE 18790
+
 ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["start-all"]

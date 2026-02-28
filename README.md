@@ -12,6 +12,10 @@ The bot's display name is configurable via `BOT_NAME` (defaults to "OpenClaw").
 - **Wake word detection** — configurable hotword via [openWakeWord](https://github.com/dscripka/openWakeWord) for multi-user channels
 - **Authorization system** — fail-closed auth with persistent user store, admin roles, and per-user agent routing
 - **Inactivity timeout** — automatically leaves voice channels after configurable idle period
+- **Proactive voice** — OpenClaw agent can speak to you unprompted via webhook (`POST /speak`) with three delivery modes:
+  - **Live** — speak in the active voice channel (priority queue)
+  - **Voicemail** — send a playable Discord voice message to your DMs
+  - **Notify** — DM you to join voice, then play the message when you arrive
 - **Slash commands** — `/join`, `/leave`, `/rejoin`, `/status`, `/timeout`, and more
 - **OpenClaw integration** — creates sessions with your OpenClaw agent for each voice conversation
 - **Docker sidecar** — runs alongside your existing OpenClaw container on the same Docker network
@@ -36,9 +40,12 @@ This is a **standalone Python application** that runs as a Docker sidecar alongs
        │  HTTP (/v1/chat/completions)
        v
   [OpenClaw Container]  ── Node.js, your AI agent
-       │
-       v
-  [Voice Assistant Container]
+       │                          │
+       v                          │  POST /speak (proactive voice webhook)
+  [Voice Assistant Container]     │
+       │                     <────┘
+       │  also: voicemail (DM voice messages)
+       │        notify (DM + queue for join)
        │  text-to-speech (ElevenLabs/Piper)
        │  sends audio to bridge via WebSocket
        v
@@ -202,6 +209,29 @@ The bot includes built-in VAD (voice activity detection) that waits for 500ms of
 The bot leaves the voice channel after `INACTIVITY_TIMEOUT` seconds of no speech activity. Default is 300 seconds (5 minutes). Set to `0` to disable.
 
 When all human users leave the channel, the bot leaves immediately. When only unauthorized users remain, it starts a 30-second leave timer.
+
+## Proactive Voice (Webhook)
+
+The bot includes a webhook server that lets your OpenClaw agent speak to you without being asked. The agent calls `POST /speak` with text, and the bot routes it based on the delivery mode:
+
+| Mode | Behavior |
+|------|----------|
+| `auto` | Try live → notify → voicemail (recommended) |
+| `live` | Speak in the active voice channel (fails if no one is listening) |
+| `voicemail` | Generate TTS audio and send as a Discord voice message DM |
+| `notify` | DM the user to join voice, queue the message for when they arrive |
+
+Quick test (from a machine that can reach the bot container):
+```bash
+curl -X POST http://localhost:18790/speak \
+  -H "Authorization: Bearer YOUR_WEBHOOK_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Hey, I wanted to let you know something!", "mode": "auto"}'
+```
+
+For full setup instructions (OpenClaw plugin, cron jobs, AGENTS.md context), see:
+- **[`PROACTIVE_VOICE_SETUP.md`](PROACTIVE_VOICE_SETUP.md)** — Human guide for configuring proactive voice
+- **[`AGENT_PROACTIVE_VOICE.md`](AGENT_PROACTIVE_VOICE.md)** — Guide for the OpenClaw agent to set itself up
 
 ## OpenClaw-Side Setup
 
@@ -389,6 +419,8 @@ docker compose ps                                    # Container status
 
 - **[`HUMAN_INSTALL.md`](HUMAN_INSTALL.md)** — Step-by-step guide for manual Unraid deployment (start here)
 - **[`AGENT_INSTALL.md`](AGENT_INSTALL.md)** — Guide designed for an OpenClaw agent to follow autonomously
+- **[`PROACTIVE_VOICE_SETUP.md`](PROACTIVE_VOICE_SETUP.md)** — Configure proactive voice (webhook, OpenClaw plugin, cron)
+- **[`AGENT_PROACTIVE_VOICE.md`](AGENT_PROACTIVE_VOICE.md)** — Agent-readable guide for self-setup of proactive voice
 
 Quick prompt for your agent:
 
@@ -462,6 +494,16 @@ See [`.env.example`](.env.example) for all available options with comments.
 | `DEFAULT_AGENT_ID` | No | — | Override default OpenClaw agent ID. Falls back to `OPENCLAW_AGENT_ID`. Per-user overrides via `/voice-agent`. |
 | `REQUIRE_WAKE_WORD_FOR_UNAUTHORIZED` | No | `true` | Require wake word from non-authorized users |
 
+### Proactive Voice Webhook
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `WEBHOOK_ENABLED` | No | `true` | Enable the proactive voice webhook server |
+| `WEBHOOK_PORT` | No | `18790` | HTTP port for the webhook server |
+| `WEBHOOK_TOKEN` | Recommended | — | Bearer token for webhook auth (generate with `openssl rand -hex 32`) |
+| `WEBHOOK_DEFAULT_MODE` | No | `auto` | Default delivery mode: `auto`, `live`, `voicemail`, `notify` |
+| `WEBHOOK_NOTIFY_USER_IDS` | No | — | Comma-separated Discord user IDs for voicemail/notify fallback |
+
 ### Logging & Debugging
 
 | Variable | Required | Default | Description |
@@ -492,13 +534,15 @@ discord_voice_assistant/
 │   ├── sink.py          # Streaming audio receiver with VAD
 │   ├── stt.py           # Speech-to-text (Faster Whisper)
 │   ├── tts.py           # Text-to-speech (ElevenLabs/Piper)
+│   ├── voicemail.py     # Discord voice message DMs (REST API)
 │   └── wake_word.py     # Wake word detection (openWakeWord)
 ├── commands/
 │   ├── general.py       # General slash commands
 │   ├── voice.py         # Voice-specific slash commands
 │   └── admin.py         # Admin user/agent management commands
 └── integrations/
-    └── openclaw.py      # OpenClaw API client (per-user agent routing)
+    ├── openclaw.py      # OpenClaw API client (per-user agent routing)
+    └── webhook_server.py # Proactive voice webhook (POST /speak)
 voice_bridge/
 ├── Dockerfile           # Node.js voice bridge container
 ├── package.json         # Node.js dependencies
@@ -506,8 +550,10 @@ voice_bridge/
     └── index.js         # Voice bridge server (DAVE E2EE)
 scripts/
 └── install.sh           # Automated install script
-AGENT_INSTALL.md         # Guide for OpenClaw agent deployment
-HUMAN_INSTALL.md         # Step-by-step human install guide for Unraid
+AGENT_INSTALL.md              # Guide for OpenClaw agent deployment
+HUMAN_INSTALL.md              # Step-by-step human install guide for Unraid
+PROACTIVE_VOICE_SETUP.md      # Proactive voice setup guide (human)
+AGENT_PROACTIVE_VOICE.md      # Proactive voice setup guide (for the agent)
 ```
 
 ## License

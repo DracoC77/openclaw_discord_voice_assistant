@@ -23,6 +23,9 @@ services:
     restart: unless-stopped
     # In two-container mode, run only the Python bot (not the embedded bridge)
     command: ["python", "-m", "discord_voice_assistant.main"]
+    ports:
+      # Proactive voice webhook (POST /speak)
+      - "${WEBHOOK_PORT:-18790}:${WEBHOOK_PORT:-18790}"
     env_file: ${ENV_FILE:-.env}
     environment:
       - TZ=${TZ:-America/New_York}
