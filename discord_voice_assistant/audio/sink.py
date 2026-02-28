@@ -150,14 +150,29 @@ class StreamingSink:
                 PLAYBACK_SPEECH_THRESHOLD,
             )
         else:
-            log.debug("Playback ended: speech threshold restored to %d", SILENCE_THRESHOLD)
+            # Drain to invalidate any already-queued stale tasks.
+            self.drain()
+            log.debug(
+                "Playback ended: speech threshold restored to %d",
+                SILENCE_THRESHOLD,
+            )
 
-    def process_segment(self, user_id: int, pcm: bytes) -> None:
+    def process_segment(
+        self, user_id: int, pcm: bytes, *, during_playback: bool = False,
+    ) -> None:
         """Process a complete speech segment from the voice bridge.
 
         The bridge already handles silence detection (EndBehaviorType.AfterSilence),
         so each audio message is a complete utterance. This method bypasses the
         sink's VAD and directly schedules the audio for pipeline processing.
+
+        Args:
+            during_playback: Set by the bridge when the audio player was active
+                at the time capture started.  Segments captured during playback
+                use the elevated speech threshold regardless of whether Python's
+                playback state has already transitioned — this eliminates the
+                timing race between bridge-side silence detection and Python-side
+                playback state changes.
 
         Data is raw PCM: 48kHz, 2 channels (stereo), 16-bit signed LE.
         """
@@ -167,16 +182,27 @@ class StreamingSink:
         rms = self._compute_rms(pcm)
         audio_secs = len(pcm) / (DISCORD_SAMPLE_RATE * 2 * 2)
         log.debug(
-            "Complete segment from user %d: %d bytes (%.2fs, rms=%.0f)",
-            user_id, len(pcm), audio_secs, rms,
+            "Complete segment from user %d: %d bytes (%.2fs, rms=%.0f, during_playback=%s)",
+            user_id, len(pcm), audio_secs, rms, during_playback,
         )
 
-        threshold = PLAYBACK_SPEECH_THRESHOLD if self._playback_active else SILENCE_THRESHOLD
+        # Use the elevated threshold if EITHER Python thinks playback is
+        # active OR the bridge tagged this segment as captured during
+        # playback.  The bridge tag is the authoritative signal — it
+        # handles the race where the bridge delivers a segment (delayed
+        # by silence detection) after Python has already ended playback.
+        if self._playback_active or during_playback:
+            threshold = PLAYBACK_SPEECH_THRESHOLD
+        else:
+            threshold = SILENCE_THRESHOLD
+
         if rms <= threshold:
-            if self._playback_active:
+            if self._playback_active or during_playback:
                 log.debug(
-                    "Segment during playback below speech threshold "
+                    "Segment %s below speech threshold "
                     "(rms=%.0f, need>%d), skipping",
+                    "during playback" if self._playback_active
+                    else "captured during playback (bridge-tagged)",
                     rms, threshold,
                 )
             else:

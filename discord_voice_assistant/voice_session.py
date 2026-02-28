@@ -10,7 +10,7 @@ import re
 import tempfile
 import time
 from dataclasses import dataclass, field as dc_field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable, Awaitable
 
 import discord
 
@@ -123,18 +123,26 @@ class _BridgeVoiceProtocol(discord.VoiceProtocol):
         self._connected = False
         self._voice_server_event = asyncio.Event()
         self._voice_state_event = asyncio.Event()
+        # Optional callback invoked on subsequent voice updates so the
+        # session can forward new credentials to the bridge (e.g. during
+        # Discord voice server migrations).
+        self.on_voice_update: Callable[[str, dict], Awaitable[None]] | None = None
 
     async def on_voice_server_update(self, data: dict) -> None:
         self.voice_data["voice_server"] = data
         log.debug("Captured voice_server_update: endpoint=%s", data.get("endpoint"))
         self._connected = True
         self._voice_server_event.set()
+        if self.on_voice_update:
+            await self.on_voice_update("voice_server", data)
 
     async def on_voice_state_update(self, data: dict) -> None:
         self.voice_data["voice_state"] = data
         self.voice_data["session_id"] = data.get("session_id", "")
         log.debug("Captured voice_state_update: session=%s", data.get("session_id"))
         self._voice_state_event.set()
+        if self.on_voice_update:
+            await self.on_voice_update("voice_state", data)
 
     async def connect(self, *, timeout: float, reconnect: bool, **kwargs) -> None:
         # Send Gateway OP 4 to tell Discord we want to join this voice channel.
@@ -330,6 +338,27 @@ class VoiceSession:
         self.is_active = True
         self._start_time = time.monotonic()
 
+        # Forward subsequent voice credential updates (e.g. during Discord
+        # voice server migrations) to the bridge in real-time so it can
+        # reconnect transparently.
+        async def _forward_voice_update(update_type: str, data: dict) -> None:
+            if not self.is_active:
+                return
+            try:
+                if update_type == "voice_server":
+                    await self.bridge.send_voice_server_update(data)
+                    log.info(
+                        "Forwarded voice_server_update to bridge (endpoint=%s)",
+                        data.get("endpoint"),
+                    )
+                elif update_type == "voice_state":
+                    await self.bridge.send_voice_state_update(data)
+                    log.info("Forwarded voice_state_update to bridge")
+            except Exception:
+                log.warning("Failed to forward voice update to bridge", exc_info=True)
+
+        self._voice_client.on_voice_update = _forward_voice_update
+
         # Register audio callback immediately — pipeline is already warm
         self._sink = StreamingSink(self._on_audio_chunk, asyncio.get_running_loop())
         self.bridge.register_audio_callback(guild_id, self._on_bridge_audio)
@@ -347,7 +376,9 @@ class VoiceSession:
             self.bridge.is_dave_active(guild_id),
         )
 
-    async def _on_bridge_audio(self, user_id: int, pcm: bytes, guild_id: str) -> None:
+    async def _on_bridge_audio(
+        self, user_id: int, pcm: bytes, guild_id: str, during_playback: bool = False,
+    ) -> None:
         """Called when the bridge sends decoded audio from a user.
 
         The bridge already segments audio by silence (EndBehaviorType.AfterSilence),
@@ -357,6 +388,10 @@ class VoiceSession:
         During bot playback, checks for barge-in: if the segment is loud
         enough to be real speech (above PLAYBACK_SPEECH_THRESHOLD), the
         current response is interrupted so the user's speech can be processed.
+
+        The ``during_playback`` flag is set by the bridge when audio capture
+        started while the bot was playing.  It's passed to the sink so stale
+        segments can be filtered deterministically without timing heuristics.
         """
         if not self.is_active or not self._sink:
             return
@@ -375,7 +410,7 @@ class VoiceSession:
                 except Exception:
                     log.debug("Error stopping playback for barge-in", exc_info=True)
 
-        self._sink.process_segment(user_id, pcm)
+        self._sink.process_segment(user_id, pcm, during_playback=during_playback)
 
     async def _on_speaking_start(self, user_id: int, rms: float, guild_id: str) -> None:
         """Early barge-in: bridge detected loud speech within ~60ms of user starting to talk.
@@ -651,10 +686,20 @@ class VoiceSession:
             speaker_name = member.display_name if member else f"User#{user_id}"
             log.info("[%s] %s", speaker_name, text)
 
-            # Per-user session ID and agent routing
+            # Per-user session ID, agent routing, and voice config
             auth_store = self.bot.auth_store
             user_session_id = self._get_or_create_user_session(user_id)
             user_agent_id = auth_store.get_agent_id(user_id)
+
+            # Resolve effective TTS settings for this user
+            tts_cfg = self.config.tts
+            user_tts_provider = auth_store.get_effective_tts_provider(tts_cfg.provider)
+            user_voice_id = auth_store.get_effective_voice_id(
+                user_id, tts_cfg.elevenlabs_voice_id
+            )
+            user_local_model = auth_store.get_effective_local_model(
+                user_id, tts_cfg.local_model
+            )
 
             # If the previous response was interrupted by barge-in,
             # prepend context so OpenClaw knows the conversation was cut short.
@@ -705,7 +750,12 @@ class VoiceSession:
                         break
                     if not self.is_active or self._interrupted:
                         continue
-                    audio = await self._synthesize(item)
+                    audio = await self._synthesize(
+                        item,
+                        provider=user_tts_provider,
+                        elevenlabs_voice_id=user_voice_id,
+                        local_model=user_local_model,
+                    )
                     if audio:
                         await audio_queue.put(audio)
 
@@ -835,10 +885,22 @@ class VoiceSession:
                 " (interrupted)" if self._interrupted else "",
             )
 
-    async def _synthesize(self, text: str) -> bytes | None:
+    async def _synthesize(
+        self,
+        text: str,
+        *,
+        provider: str | None = None,
+        elevenlabs_voice_id: str | None = None,
+        local_model: str | None = None,
+    ) -> bytes | None:
         """Run TTS synthesis and return raw audio bytes (no playback)."""
         synth_start = time.monotonic()
-        audio_bytes = await self._tts.synthesize(text)
+        audio_bytes = await self._tts.synthesize(
+            text,
+            provider=provider,
+            elevenlabs_voice_id=elevenlabs_voice_id,
+            local_model=local_model,
+        )
         log.debug(
             "TTS produced %d bytes in %.3fs",
             len(audio_bytes) if audio_bytes else 0,

@@ -9,6 +9,11 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from discord_voice_assistant.commands.voice_config import (
+    _get_voice_list_for_provider,
+    _voice_display_name,
+)
+
 if TYPE_CHECKING:
     from discord_voice_assistant.bot import VoiceAssistantBot
 
@@ -62,6 +67,10 @@ class AdminCommands(commands.Cog):
             description=f"{len(users)} user(s) configured",
         )
 
+        effective_provider = store.get_effective_tts_provider(
+            self.bot.config.tts.provider
+        )
+
         for uid_str, info in sorted(users.items()):
             uid = int(uid_str)
             role = info.get("role", "user")
@@ -79,10 +88,22 @@ class AdminCommands(commands.Cog):
             else:
                 agent_line = f"\nAgent: `{store.default_agent_id}` (default)"
 
+            # Check for voice override
+            voice_prefs = store.get_user_voice(uid)
+            voice_line = ""
+            if effective_provider == "elevenlabs" and voice_prefs.get("elevenlabs_voice_id"):
+                vid = voice_prefs["elevenlabs_voice_id"]
+                vname = _voice_display_name("elevenlabs", vid)
+                voice_line = f"\nVoice: {vname}"
+            elif effective_provider == "local" and voice_prefs.get("local_tts_model"):
+                model = voice_prefs["local_tts_model"]
+                vname = _voice_display_name("local", model)
+                voice_line = f"\nVoice: {vname}"
+
             added_by = info.get("added_by", "unknown")
             embed.add_field(
                 name=f"{role_badge} {name}",
-                value=f"ID: `{uid}`\nRole: {role}{agent_line}\nAdded by: {added_by}",
+                value=f"ID: `{uid}`\nRole: {role}{agent_line}{voice_line}\nAdded by: {added_by}",
                 inline=True,
             )
 
@@ -297,6 +318,81 @@ class AdminCommands(commands.Cog):
                 f"Reset agent for {user.mention} to default (`{store.default_agent_id}`).",
                 ephemeral=True,
             )
+
+    # ------------------------------------------------------------------
+    # /voice-set-user — admin sets voice for another user
+    # ------------------------------------------------------------------
+
+    @app_commands.command(
+        name="voice-set-user",
+        description="Set the TTS voice for a specific user (admin only)",
+    )
+    @app_commands.describe(
+        user="User to configure",
+        voice="Voice to assign (type to search, or paste a custom voice ID/model name). "
+              "Leave empty to clear.",
+    )
+    async def voice_set_user(
+        self,
+        interaction: discord.Interaction,
+        user: discord.User,
+        voice: str | None = None,
+    ) -> None:
+        if not await _check_admin(self.bot, interaction):
+            return
+
+        store = self.bot.auth_store
+
+        if not store.is_authorized(user.id):
+            await interaction.response.send_message(
+                f"{user.mention} is not authorized. Add them first with `/voice-add`.",
+                ephemeral=True,
+            )
+            return
+
+        if not voice:
+            if store.clear_user_voice(user.id):
+                await interaction.response.send_message(
+                    f"Cleared voice override for {user.mention}. Using default voice.",
+                    ephemeral=True,
+                )
+            else:
+                await interaction.response.send_message(
+                    f"{user.mention} has no custom voice set.",
+                    ephemeral=True,
+                )
+            return
+
+        provider = store.get_effective_tts_provider(self.bot.config.tts.provider)
+        display = _voice_display_name(provider, voice)
+
+        if provider == "elevenlabs":
+            store.set_user_voice(user.id, elevenlabs_voice_id=voice)
+        else:
+            store.set_user_voice(user.id, local_tts_model=voice)
+
+        await interaction.response.send_message(
+            f"Voice for {user.mention} set to **{display}** (provider: {provider}).",
+            ephemeral=True,
+        )
+
+    @voice_set_user.autocomplete("voice")
+    async def _voice_set_user_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        store = self.bot.auth_store
+        provider = store.get_effective_tts_provider(self.bot.config.tts.provider)
+        voices = _get_voice_list_for_provider(provider)
+
+        choices: list[app_commands.Choice[str]] = []
+        query = current.lower()
+        for name, value in voices:
+            if query and query not in name.lower() and query not in value.lower():
+                continue
+            choices.append(app_commands.Choice(name=name, value=value))
+            if len(choices) >= 25:
+                break
+        return choices
 
     # ------------------------------------------------------------------
     # /voice-channels — list allowed channels for this guild

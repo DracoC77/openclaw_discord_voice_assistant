@@ -13,6 +13,7 @@ from discord_voice_assistant.auth_store import AuthStore
 from discord_voice_assistant.commands.admin import AdminCommands
 from discord_voice_assistant.commands.general import GeneralCommands
 from discord_voice_assistant.commands.voice import VoiceCommands
+from discord_voice_assistant.commands.voice_config import VoiceConfigCommands
 from discord_voice_assistant.integrations.webhook_server import WebhookServer
 from discord_voice_assistant.voice_bridge import VoiceBridgeClient
 from discord_voice_assistant.voice_manager import VoiceManager
@@ -113,6 +114,7 @@ class VoiceAssistantBot(commands.Bot):
             await self.add_cog(GeneralCommands(self))
             await self.add_cog(VoiceCommands(self))
             await self.add_cog(AdminCommands(self))
+            await self.add_cog(VoiceConfigCommands(self))
 
         # Sync slash commands
         try:
