@@ -23,8 +23,9 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-# Type for the audio callback: (user_id, pcm_bytes_48k_stereo, guild_id)
-AudioCallback = Callable[[int, bytes, str], Awaitable[None]]
+# Type for the audio callback:
+#   (user_id, pcm_bytes_48k_stereo, guild_id, during_playback)
+AudioCallback = Callable[[int, bytes, str, bool], Awaitable[None]]
 
 
 class VoiceBridgeClient:
@@ -172,10 +173,13 @@ class VoiceBridgeClient:
         elif op == "audio":
             user_id = msg.get("user_id")
             pcm_b64 = msg.get("pcm", "")
+            during_playback = msg.get("during_playback", False)
             if pcm_b64 and guild_id in self._audio_callbacks:
                 pcm = base64.b64decode(pcm_b64)
                 try:
-                    await self._audio_callbacks[guild_id](int(user_id), pcm, guild_id)
+                    await self._audio_callbacks[guild_id](
+                        int(user_id), pcm, guild_id, during_playback
+                    )
                 except Exception:
                     log.exception("Error in audio callback for user %s", user_id)
 

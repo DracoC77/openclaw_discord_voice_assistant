@@ -352,7 +352,9 @@ class VoiceSession:
             self.bridge.is_dave_active(guild_id),
         )
 
-    async def _on_bridge_audio(self, user_id: int, pcm: bytes, guild_id: str) -> None:
+    async def _on_bridge_audio(
+        self, user_id: int, pcm: bytes, guild_id: str, during_playback: bool = False,
+    ) -> None:
         """Called when the bridge sends decoded audio from a user.
 
         The bridge already segments audio by silence (EndBehaviorType.AfterSilence),
@@ -362,6 +364,10 @@ class VoiceSession:
         During bot playback, checks for barge-in: if the segment is loud
         enough to be real speech (above PLAYBACK_SPEECH_THRESHOLD), the
         current response is interrupted so the user's speech can be processed.
+
+        The ``during_playback`` flag is set by the bridge when audio capture
+        started while the bot was playing.  It's passed to the sink so stale
+        segments can be filtered deterministically without timing heuristics.
         """
         if not self.is_active or not self._sink:
             return
@@ -380,7 +386,7 @@ class VoiceSession:
                 except Exception:
                     log.debug("Error stopping playback for barge-in", exc_info=True)
 
-        self._sink.process_segment(user_id, pcm)
+        self._sink.process_segment(user_id, pcm, during_playback=during_playback)
 
     async def _on_speaking_start(self, user_id: int, rms: float, guild_id: str) -> None:
         """Early barge-in: bridge detected loud speech within ~60ms of user starting to talk.

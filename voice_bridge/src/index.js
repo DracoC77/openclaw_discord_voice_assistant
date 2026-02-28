@@ -295,7 +295,11 @@ class GuildVoiceConnection {
       // Use shorter silence timeout during playback for faster barge-in
       const isPlaying = this.player && this.player.state.status === AudioPlayerStatus.Playing;
       const silenceDuration = isPlaying ? BRIDGE_SILENCE_PLAYBACK_MS : BRIDGE_SILENCE_MS;
-      log('DEBUG', `User started speaking: ${userId} (silence timeout: ${silenceDuration}ms)`);
+      // Tag the segment so Python knows whether playback was active when
+      // capture started.  This lets Python deterministically filter stale
+      // echo/crosstalk without relying on timing heuristics.
+      const capturedDuringPlayback = isPlaying;
+      log('DEBUG', `User started speaking: ${userId} (silence timeout: ${silenceDuration}ms, during_playback: ${capturedDuringPlayback})`);
 
       const opusStream = this.receiver.subscribe(userId, {
         end: {
@@ -361,6 +365,7 @@ class GuildVoiceConnection {
           user_id: userId,
           guild_id: this.guildId,
           pcm: fullPcm.toString('base64'),
+          during_playback: capturedDuringPlayback,
         });
       });
 
