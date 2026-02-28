@@ -194,7 +194,10 @@ class VoiceConfigCommands(commands.Cog):
         else:
             # Validate the Piper model exists or is a known model name
             known_models = {m for _, m in PIPER_VOICES}
-            piper_model_dir = os.getenv("PIPER_MODEL_DIR", "/opt/piper")
+            piper_model_dir = os.getenv(
+                "PIPER_MODEL_DIR",
+                os.path.join(os.getenv("MODELS_DIR", "models"), "piper"),
+            )
             model_file = os.path.join(piper_model_dir, f"{voice}.onnx")
             if voice not in known_models and not os.path.isfile(model_file):
                 warning = (

@@ -84,19 +84,20 @@ COPY voice_bridge/package.json /app/voice_bridge/package.json
 # Copy application code
 COPY . .
 
-# Download default Piper TTS model (~75MB)
-# Stored in /opt/piper (not /app/models which is a volume mount point)
-RUN mkdir -p /opt/piper && \
+# Download default Piper TTS model (~75MB) into /app/models/piper,
+# alongside Whisper models in /app/models/whisper.  Both are persisted
+# via the /app/models volume so user-downloaded voices survive rebuilds.
+RUN mkdir -p /app/models/piper && \
     python -c "import urllib.request; \
-    urllib.request.urlretrieve('https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/hfc_male/medium/en_US-hfc_male-medium.onnx', '/opt/piper/en_US-hfc_male-medium.onnx'); \
-    urllib.request.urlretrieve('https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/hfc_male/medium/en_US-hfc_male-medium.onnx.json', '/opt/piper/en_US-hfc_male-medium.onnx.json')"
+    urllib.request.urlretrieve('https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/hfc_male/medium/en_US-hfc_male-medium.onnx', '/app/models/piper/en_US-hfc_male-medium.onnx'); \
+    urllib.request.urlretrieve('https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/hfc_male/medium/en_US-hfc_male-medium.onnx.json', '/app/models/piper/en_US-hfc_male-medium.onnx.json')"
 
 # Create non-root user
 RUN useradd -m -s /bin/bash appuser
 
 # Create data directories and set ownership
 RUN mkdir -p /app/data /app/models /app/logs \
-    && chown -R appuser:appuser /app /opt/piper
+    && chown -R appuser:appuser /app
 
 # Entrypoint fixes volume permissions then drops to appuser
 COPY docker-entrypoint.sh /usr/local/bin/

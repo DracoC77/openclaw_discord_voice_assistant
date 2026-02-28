@@ -18,8 +18,14 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-# Where Piper models are stored inside the container
-_PIPER_MODEL_DIR = Path(os.getenv("PIPER_MODEL_DIR", "/opt/piper"))
+# Where Piper models are stored — defaults to <MODELS_DIR>/piper, consistent
+# with Whisper models living under <MODELS_DIR>/whisper.
+_PIPER_MODEL_DIR = Path(
+    os.getenv(
+        "PIPER_MODEL_DIR",
+        str(Path(os.getenv("MODELS_DIR", "models")) / "piper"),
+    )
+)
 
 # HuggingFace base URL for downloading Piper voice models
 _PIPER_HF_BASE = (
@@ -141,8 +147,8 @@ def _resolve_piper_model(model: str) -> str:
     """Resolve a Piper model name or path to an absolute .onnx path.
 
     Accepts:
-      - Full path:  /opt/piper/en_US-lessac-medium.onnx  (returned as-is)
-      - Model name:  en_US-lessac-medium  (resolved to /opt/piper/<name>.onnx)
+      - Full path:  /app/models/piper/en_US-lessac-medium.onnx  (returned as-is)
+      - Model name:  en_US-lessac-medium  (resolved to <PIPER_MODEL_DIR>/<name>.onnx)
 
     If the resolved file doesn't exist, attempts to download it from HuggingFace.
     """
@@ -186,7 +192,7 @@ def _resolve_piper_model(model: str) -> str:
         log.info("Downloading Piper model '%s' from HuggingFace...", model)
 
         # Try the configured model dir first; fall back to a writable
-        # location if permissions prevent writing (e.g. /opt/piper owned
+        # location if permissions prevent writing (e.g. model dir owned
         # by root but app running as appuser).
         download_dir = _PIPER_MODEL_DIR
         try:
