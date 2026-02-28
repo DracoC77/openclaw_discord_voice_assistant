@@ -33,12 +33,6 @@ SILENCE_THRESHOLD = 300
 # cascade of self-responses.  Real speech directed at the mic typically
 # registers RMS 1500+ even in noisy environments.
 PLAYBACK_SPEECH_THRESHOLD = 1200
-# Grace period (seconds) after playback ends during which the elevated
-# speech threshold is maintained.  The voice bridge uses silence-based
-# segmentation (~1s) so audio captured *during* playback can be delivered
-# up to ~1s after playback stops.  This grace period prevents those stale
-# segments from triggering a new pipeline run.
-PLAYBACK_GRACE_PERIOD = 1.5
 # How long to wait after speech stops before processing (voice activity detection)
 VAD_SILENCE_DURATION = 1.0
 # Maximum buffer size per user (bytes) — ~120s of 48kHz stereo 16-bit audio
@@ -82,8 +76,6 @@ class StreamingSink:
         # segments exceeding PLAYBACK_SPEECH_THRESHOLD are accepted
         # (filters echo/ambient noise, allows real barge-in speech).
         self._playback_active: bool = False
-        # Timestamp when playback ended (for grace-period threshold).
-        self._playback_ended_at: float = 0.0
         # Monotonically increasing counter bumped by drain().  Pipeline
         # tasks capture the current epoch; if drain() fires before they
         # start processing, the epoch mismatch causes them to be skipped.
@@ -153,27 +145,34 @@ class StreamingSink:
         """Toggle playback state, which raises the speech detection threshold."""
         self._playback_active = active
         if active:
-            self._playback_ended_at = 0.0
             log.debug(
                 "Playback active: speech threshold raised to %d",
                 PLAYBACK_SPEECH_THRESHOLD,
             )
         else:
-            self._playback_ended_at = time.monotonic()
-            # Drain to invalidate any already-queued stale tasks from
-            # playback, and start the grace period.
+            # Drain to invalidate any already-queued stale tasks.
             self.drain()
             log.debug(
-                "Playback ended: grace period %.1fs with threshold %d",
-                PLAYBACK_GRACE_PERIOD, PLAYBACK_SPEECH_THRESHOLD,
+                "Playback ended: speech threshold restored to %d",
+                SILENCE_THRESHOLD,
             )
 
-    def process_segment(self, user_id: int, pcm: bytes) -> None:
+    def process_segment(
+        self, user_id: int, pcm: bytes, *, during_playback: bool = False,
+    ) -> None:
         """Process a complete speech segment from the voice bridge.
 
         The bridge already handles silence detection (EndBehaviorType.AfterSilence),
         so each audio message is a complete utterance. This method bypasses the
         sink's VAD and directly schedules the audio for pipeline processing.
+
+        Args:
+            during_playback: Set by the bridge when the audio player was active
+                at the time capture started.  Segments captured during playback
+                use the elevated speech threshold regardless of whether Python's
+                playback state has already transitioned — this eliminates the
+                timing race between bridge-side silence detection and Python-side
+                playback state changes.
 
         Data is raw PCM: 48kHz, 2 channels (stereo), 16-bit signed LE.
         """
@@ -183,37 +182,28 @@ class StreamingSink:
         rms = self._compute_rms(pcm)
         audio_secs = len(pcm) / (DISCORD_SAMPLE_RATE * 2 * 2)
         log.debug(
-            "Complete segment from user %d: %d bytes (%.2fs, rms=%.0f)",
-            user_id, len(pcm), audio_secs, rms,
+            "Complete segment from user %d: %d bytes (%.2fs, rms=%.0f, during_playback=%s)",
+            user_id, len(pcm), audio_secs, rms, during_playback,
         )
 
-        # Determine effective threshold.  During playback AND for a grace
-        # period afterward, use the elevated threshold.  The bridge's
-        # silence-based segmentation delays delivery by ~1s, so audio
-        # captured during playback can arrive after playback ends.
-        in_grace = (
-            not self._playback_active
-            and self._playback_ended_at > 0
-            and time.monotonic() - self._playback_ended_at < PLAYBACK_GRACE_PERIOD
-        )
-        if self._playback_active or in_grace:
+        # Use the elevated threshold if EITHER Python thinks playback is
+        # active OR the bridge tagged this segment as captured during
+        # playback.  The bridge tag is the authoritative signal — it
+        # handles the race where the bridge delivers a segment (delayed
+        # by silence detection) after Python has already ended playback.
+        if self._playback_active or during_playback:
             threshold = PLAYBACK_SPEECH_THRESHOLD
         else:
             threshold = SILENCE_THRESHOLD
 
         if rms <= threshold:
-            if self._playback_active:
+            if self._playback_active or during_playback:
                 log.debug(
-                    "Segment during playback below speech threshold "
+                    "Segment %s below speech threshold "
                     "(rms=%.0f, need>%d), skipping",
+                    "during playback" if self._playback_active
+                    else "captured during playback (bridge-tagged)",
                     rms, threshold,
-                )
-            elif in_grace:
-                log.debug(
-                    "Segment in post-playback grace period "
-                    "(rms=%.0f, need>%d, %.1fs since playback ended), skipping",
-                    rms, threshold,
-                    time.monotonic() - self._playback_ended_at,
                 )
             else:
                 log.debug("Segment is silence (rms=%.0f), skipping", rms)
