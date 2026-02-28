@@ -700,6 +700,10 @@ class VoiceSession:
             user_local_model = auth_store.get_effective_local_model(
                 user_id, tts_cfg.local_model
             )
+            log.debug(
+                "TTS settings for user %d: provider=%s, voice_id=%s, local_model=%s",
+                user_id, user_tts_provider, user_voice_id, user_local_model,
+            )
 
             # If the previous response was interrupted by barge-in,
             # prepend context so OpenClaw knows the conversation was cut short.
