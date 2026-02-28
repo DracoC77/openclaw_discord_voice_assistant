@@ -18,8 +18,14 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-# Where Piper models are stored inside the container
-_PIPER_MODEL_DIR = Path(os.getenv("PIPER_MODEL_DIR", "/opt/piper"))
+# Where Piper models are stored — defaults to <MODELS_DIR>/piper, consistent
+# with Whisper models living under <MODELS_DIR>/whisper.
+_PIPER_MODEL_DIR = Path(
+    os.getenv(
+        "PIPER_MODEL_DIR",
+        str(Path(os.getenv("MODELS_DIR", "models")) / "piper"),
+    )
+)
 
 # HuggingFace base URL for downloading Piper voice models
 _PIPER_HF_BASE = (
@@ -141,8 +147,8 @@ def _resolve_piper_model(model: str) -> str:
     """Resolve a Piper model name or path to an absolute .onnx path.
 
     Accepts:
-      - Full path:  /opt/piper/en_US-lessac-medium.onnx  (returned as-is)
-      - Model name:  en_US-lessac-medium  (resolved to /opt/piper/<name>.onnx)
+      - Full path:  /app/models/piper/en_US-lessac-medium.onnx  (returned as-is)
+      - Model name:  en_US-lessac-medium  (resolved to <PIPER_MODEL_DIR>/<name>.onnx)
 
     If the resolved file doesn't exist, attempts to download it from HuggingFace.
     """
@@ -184,20 +190,44 @@ def _resolve_piper_model(model: str) -> str:
         json_url = f"{base_url}/{model}.onnx.json"
 
         log.info("Downloading Piper model '%s' from HuggingFace...", model)
-        _PIPER_MODEL_DIR.mkdir(parents=True, exist_ok=True)
+
+        # Try the configured model dir first; fall back to a writable
+        # location if permissions prevent writing (e.g. model dir owned
+        # by root but app running as appuser).
+        download_dir = _PIPER_MODEL_DIR
+        try:
+            download_dir.mkdir(parents=True, exist_ok=True)
+            # Quick writability check
+            _test = download_dir / ".write_test"
+            _test.touch()
+            _test.unlink()
+        except PermissionError:
+            download_dir = Path.home() / ".local" / "share" / "piper-models"
+            log.warning(
+                "Cannot write to %s, using fallback: %s",
+                _PIPER_MODEL_DIR,
+                download_dir,
+            )
+            download_dir.mkdir(parents=True, exist_ok=True)
+
+        dl_onnx = download_dir / f"{model}.onnx"
+        dl_json = download_dir / f"{model}.onnx.json"
 
         import urllib.request
-        urllib.request.urlretrieve(onnx_url, str(onnx_path))
-        urllib.request.urlretrieve(json_url, str(json_path))
+        urllib.request.urlretrieve(onnx_url, str(dl_onnx))
+        urllib.request.urlretrieve(json_url, str(dl_json))
 
-        log.info("Piper model '%s' downloaded to %s", model, onnx_path)
-        return str(onnx_path)
+        log.info("Piper model '%s' downloaded to %s", model, dl_onnx)
+        return str(dl_onnx)
 
     except Exception:
         log.exception("Failed to download Piper model '%s'", model)
         # Clean up partial downloads
-        onnx_path.unlink(missing_ok=True)
-        json_path.unlink(missing_ok=True)
+        for p in (onnx_path, json_path):
+            try:
+                p.unlink(missing_ok=True)
+            except OSError:
+                pass
         return str(onnx_path)
 
 
